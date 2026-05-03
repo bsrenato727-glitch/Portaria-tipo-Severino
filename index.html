@@ -101,21 +101,210 @@
     </div>
 
 <script>
-function getConfig(){try{const c=localStorage.getItem('portaria_config');return c?JSON.parse(c):{url:'',key:''}}catch(e){return{url:'',key:''}}}
-function saveConfig(url,key){localStorage.setItem('portaria_config',JSON.stringify({url,key}))}
+/* ============================================
+   CONFIGURACOES
+   ============================================ */
+function getConfig(){
+    try{
+        const c=localStorage.getItem('portaria_config');
+        return c?JSON.parse(c):{url:'',key:'',imgbbKey:''};
+    }catch(e){return{url:'',key:'',imgbbKey:''}}
+}
+function saveConfig(url,key,imgbbKey){
+    localStorage.setItem('portaria_config',JSON.stringify({url,key,imgbbKey:imgbbKey||''}));
+}
 
-let sb=null,dbMode='local';
-function initSupabase(){const cfg=getConfig();if(!cfg.url||!cfg.key){setStatus('offline','Modo local - configure o Supabase para salvar na nuvem');dbMode='local';return false}try{sb=window.supabase.createClient(cfg.url,cfg.key);dbMode='cloud';return true}catch(e){console.error('Erro Supabase:',e);setStatus('error','Erro ao criar cliente: '+e.message);dbMode='local';return false}}
+/* ============================================
+   SUPABASE CLIENT
+   ============================================ */
+let sb=null, dbMode='local';
 
-function setStatus(t,text){const b=document.getElementById('statusBar');if(!b)return;b.className='status-bar '+t;const i={online:'fa-cloud',offline:'fa-database',error:'fa-triangle-exclamation',syncing:'fa-sync fa-spin'};b.innerHTML=`<i class="fa-solid ${i[t]||'fa-database'}"></i><span>${text}</span>`}
+function initSupabase(){
+    const cfg=getConfig();
+    if(!cfg.url||!cfg.key){
+        setStatus('offline','Modo local - configure o Supabase e imgBB para salvar na nuvem');
+        dbMode='local';
+        return false;
+    }
+    try{
+        sb=window.supabase.createClient(cfg.url,cfg.key);
+        dbMode='cloud';
+        return true;
+    }catch(e){
+        console.error('Erro Supabase:',e);
+        setStatus('error','Erro ao criar cliente: '+e.message);
+        dbMode='local';
+        return false;
+    }
+}
 
-const LOCAL_KEY='portaria_data_v7';
+function setStatus(t,text){
+    const b=document.getElementById('statusBar');
+    if(!b)return;
+    b.className='status-bar '+t;
+    const i={online:'fa-cloud',offline:'fa-database',error:'fa-triangle-exclamation',syncing:'fa-sync fa-spin'};
+    b.innerHTML=`<i class="fa-solid ${i[t]||'fa-database'}"></i><span>${text}</span>`;
+}
+
+/* ============================================
+   ESTADO DA APLICACAO
+   ============================================ */
+const LOCAL_KEY='portaria_data_v8';
 let state={residents:[],packages:[],providers:[]};
-let qrScanner=null,scannerCallback=null,vehicleCounter=0,visitorCounter=0;
-let residentSearchQuery='',packageFilter='all',providerSearchQuery='';
-let tempProviderPhotos=[],tempPackagePhoto=null;
+let qrScanner=null, scannerCallback=null, vehicleCounter=0, visitorCounter=0;
+let residentSearchQuery='', packageFilter='all', providerSearchQuery='';
+let tempProviderPhotos=[], tempPackagePhoto=null;
+
+/* ============================================
+   UTILIDADES
+   ============================================ */
+function genId(){return'id_'+Date.now()+'_'+Math.random().toString(36).substr(2,6)}
+function genCode(){const c='ABCDEFGHJKMNPQRSTUVWXYZ23456789';let r='';for(let i=0;i<6;i++)r+=c[Math.floor(Math.random()*c.length)];return r}
+function safeP(v){if(!v)return[];if(typeof v==='string')try{return JSON.parse(v)}catch(e){return[]}if(Array.isArray(v))return v;return[]}
+function isB64(s){return typeof s==='string'&&s.length>200&&s.startsWith('data:')}
+function formatPhone(p){const d=p.replace(/\D/g,'');if(d.length===11)return`(${d.substr(0,2)}) ${d.substr(2,5)}-${d.substr(7,4)}`;if(d.length===10)return`(${d.substr(0,2)}) ${d.substr(2,4)}-${d.substr(6,4)}`;return p}
+function waUrl(p,m){const d=p.replace(/\D/g,'');return`https://wa.me/${d.startsWith('55')?d:'55'+d}?text=${encodeURIComponent(m)}`}
+function fmtDate(iso){if(!iso)return'-';const d=new Date(iso);return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'})+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}
+function isToday(iso){if(!iso)return false;const d=new Date(iso),n=new Date();return d.getDate()===n.getDate()&&d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear()}
+function getR(id){return state.residents.find(r=>r.id===id)}
+function compressImg(file,maxW=800,q=0.5){return new Promise((res,rej)=>{const reader=new FileReader();reader.onload=e=>{const img=new Image();img.onload=()=>{const canvas=document.createElement('canvas');let w=img.width,h=img.height;if(w>maxW){h=(maxW/w)*h;w=maxW}canvas.width=w;canvas.height=h;canvas.getContext('2d').drawImage(img,0,0,w,h);res(canvas.toDataURL('image/jpeg',q))};img.onerror=rej;img.src=e.target.result};reader.onerror=rej;reader.readAsDataURL(file)})}
+
+/* ============================================
+   TOAST / MODAL
+   ============================================ */
+function showToast(msg,type='info'){
+    const c=document.getElementById('toastContainer');
+    const icons={success:'fa-circle-check',error:'fa-circle-xmark',info:'fa-circle-info',warning:'fa-triangle-exclamation'};
+    const t=document.createElement('div');
+    t.className=`toast ${type}`;
+    t.innerHTML=`<i class="fa-solid ${icons[type]||icons.info}"></i><span>${msg}</span>`;
+    c.appendChild(t);
+    setTimeout(()=>{t.classList.add('toast-exit');setTimeout(()=>t.remove(),300)},4000);
+}
+
+function openModal(h){
+    document.getElementById('modalContent').innerHTML=h;
+    document.getElementById('modalOverlay').classList.add('active');
+    document.body.style.overflow='hidden';
+    setTimeout(()=>{const f=document.querySelector('#modalContent input,#modalContent select');if(f)f.focus()},100);
+}
+function closeModal(){
+    document.getElementById('modalOverlay').classList.remove('active');
+    document.body.style.overflow='';
+}
+document.getElementById('modalOverlay').addEventListener('click',e=>{if(e.target===e.currentTarget)closeModal()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();stopScanner()}});
+
+/* ============================================
+   SCANNER QR / BARRAS
+   ============================================ */
+function openScanner(cb,title,sub,hint){
+    scannerCallback=cb;
+    document.getElementById('scannerTitle').textContent=title||'Escanear';
+    document.getElementById('scannerSubtitle').textContent=sub||'';
+    document.getElementById('scannerHint').textContent=hint||'';
+    document.getElementById('scanOverlay').style.display='';
+    document.getElementById('scannerModal').classList.add('active');
+    document.body.style.overflow='hidden';
+    const el=document.getElementById('qr-reader');
+    el.innerHTML='';
+    setTimeout(()=>{
+        try{
+            qrScanner=new Html5Qrcode('qr-reader');
+            qrScanner.start(
+                {facingMode:'environment'},
+                {fps:10,qrbox:{width:260,height:160},aspectRatio:1.3},
+                onScanSuccess,
+                ()=>{}
+            ).catch(()=>{
+                showToast('Nao foi possivel acessar a camera.','error');
+                stopScanner();
+            });
+        }catch(e){stopScanner()}
+    },300);
+}
+
+function onScanSuccess(text){
+    if(navigator.vibrate)navigator.vibrate(100);
+    if(qrScanner)qrScanner.pause(true);
+    document.getElementById('scanOverlay').style.display='none';
+    const b=document.getElementById('scannerBody');
+    const f=document.createElement('div');
+    f.className='absolute inset-0 flex items-center justify-center z-10';
+    f.style.background='rgba(6,8,13,0.85)';
+    const safe=text.replace(/'/g,"\\'").replace(/"/g,'&quot;');
+    f.innerHTML=`<div class="text-center p-6"><div class="w-16 h-16 rounded-full bg-accent/10 flex items-center justify-center mx-auto mb-4"><i class="fa-solid fa-circle-check text-accent text-3xl"></i></div><p class="text-accent font-heading font-bold text-lg mb-2">Codigo Lido</p><p class="text-fg font-mono text-sm bg-bg/60 rounded-lg px-4 py-3 break-all max-w-xs">${text}</p><div class="flex gap-3 mt-5 justify-center"><button class="btn-secondary text-sm" onclick="resumeScanner()"><i class="fa-solid fa-rotate"></i> Outro</button><button class="btn-primary text-sm" onclick="confirmScannedCode('${safe}')"><i class="fa-solid fa-check"></i> Usar</button></div></div>`;
+    b.appendChild(f);
+}
+
+function confirmScannedCode(c){stopScanner();if(scannerCallback)scannerCallback(c);scannerCallback=null}
+function resumeScanner(){
+    const b=document.getElementById('scannerBody'),f=b.querySelector('.absolute');
+    if(f)f.remove();
+    document.getElementById('scanOverlay').style.display='';
+    if(qrScanner)qrScanner.resume();
+}
+function stopScanner(){
+    if(qrScanner){qrScanner.stop().then(()=>{qrScanner.clear();qrScanner=null}).catch(()=>{qrScanner=null})}
+    document.getElementById('scannerModal').classList.remove('active');
+    const b=document.getElementById('scannerBody'),f=b.querySelector('.absolute');
+    if(f)f.remove();
+    if(!document.getElementById('modalOverlay').classList.contains('active'))document.body.style.overflow='';
+}
+document.getElementById('scannerModal').addEventListener('click',e=>{if(e.target===e.currentTarget)stopScanner()});
+
+function openScannerForRegister(){
+    openScanner(c=>{openNewPackageModal(c)},'Escanear Encomenda','Aponte para o codigo','Sera usado como rastreio.');
+}
+function openScannerForPickup(){
+    openScanner(c=>{
+        navigate('retirada');
+        setTimeout(()=>{
+            const i=document.getElementById('pickupCodeInput');
+            if(i){i.value=c.toUpperCase().replace(/[^A-Z0-9]/g,'').substring(0,6);verifyPickupCode()}
+        },200);
+    },'Escanear Retirada','QR Code do morador','');
+}
+
+/* ============================================
+   BANCO DE DADOS (Supabase + imgBB)
+   ============================================ */
+
+/* --- Upload de foto para imgBB --- */
+async function uploadPhotoToImgBB(file, folder){
+    const cfg=getConfig();
+    const apiKey=cfg.imgbbKey;
+    if(!apiKey){
+        showToast('Configure a chave imgBB nas Configuracoes','warning');
+        return await compressImg(file,600,0.4);
+    }
+    try{
+        /* Comprime antes de enviar */
+        const compressed=await compressImg(file,800,0.5);
+        const base64Data=compressed.split(',')[1];
+
+        const formData=new FormData();
+        formData.append('key',apiKey);
+        formData.append('image',base64Data);
+        formData.append('name',folder+'_'+Date.now()+'_'+Math.random().toString(36).substr(2,4));
+
+        const response=await fetch('https://api.imgbb.com/1/upload',{method:'POST',body:formData});
+        const result=await response.json();
+
+        if(result.success){
+            return result.data.url;
+        }else{
+            throw new Error(result.error?.message||'Erro imgBB');
+        }
+    }catch(error){
+        console.error('Erro upload imgBB:',error);
+        showToast('Erro ao enviar foto: '+error.message,'error');
+        return await compressImg(file,600,0.4);
+    }
+}
 
 const DB={
+    /* --- Carregar dados --- */
     async load(){
         if(dbMode==='cloud'){
             setStatus('syncing','Conectando ao banco...');
@@ -129,7 +318,9 @@ const DB={
                 state.packages=(pRes.data||[]).map(this._mapP);
                 state.providers=(pvRes.data||[]).map(this._mapPv);
                 this._saveLocal();
-                setStatus('online','Conectado ao banco de dados - tudo salvo na nuvem');
+                const cfg=getConfig();
+                const imgOk=cfg.imgbbKey?'imgBB OK':'imgBB nao configurado';
+                setStatus('online','Conectado ao Supabase - '+imgOk);
                 return;
             }catch(e){
                 console.error('Erro Supabase:',e);
@@ -140,73 +331,159 @@ const DB={
         this._loadLocal();
         setStatus('offline','Modo local - '+state.residents.length+' moradores, '+state.packages.length+' encomendas');
     },
-    async saveR(r){const row=this._unmapR(r);if(dbMode==='cloud'&&sb){try{let res;if(r._sbId){res=await sb.from('residents').update(row).eq('id',r._sbId).select().single()}else{res=await sb.from('residents').insert(row).select().single()}if(res.data){r._sbId=res.data.id;r.id=res.data.local_id||r.id}}catch(e){console.error('Erro saveR:',e)}}this._saveLocal()},
-    async deleteR(id){const r=state.residents.find(x=>x.id===id);if(dbMode==='cloud'&&sb&&r&&r._sbId){try{await sb.from('residents').delete().eq('id',r._sbId)}catch(e){}}state.residents=state.residents.filter(x=>x.id!==id);this._saveLocal()},
-    async savePkg(p){const row=this._unmapP(p);if(dbMode==='cloud'&&sb){try{let res;if(p._sbId){res=await sb.from('packages').update(row).eq('id',p._sbId).select().single()}else{res=await sb.from('packages').insert(row).select().single()}if(res.data){p._sbId=res.data.id;p.id=res.data.local_id||p.id}}catch(e){console.error('Erro savePkg:',e)}}this._saveLocal()},
-    async savePv(pv){const row=this._unmapPv(pv);if(dbMode==='cloud'&&sb){try{let res;if(pv._sbId){res=await sb.from('providers').update(row).eq('id',pv._sbId).select().single()}else{res=await sb.from('providers').insert(row).select().single()}if(res.data){pv._sbId=res.data.id;pv.id=res.data.local_id||pv.id}}catch(e){console.error('Erro savePv:',e)}}this._saveLocal()},
-    async deletePv(id){const pv=state.providers.find(x=>x.id===id);if(dbMode==='cloud'&&sb&&pv&&pv._sbId){try{await sb.from('providers').delete().eq('id',pv._sbId)}catch(e){}}state.providers=state.providers.filter(x=>x.id!==id);this._saveLocal()},
-    async uploadPhoto(file,bucket,folder){
-        if(dbMode==='cloud'&&sb){try{const c=await compressImg(file,800,0.5);const blob=await(await fetch(c)).blob();const ext=(file.name.split('.').pop()||'jpg').toLowerCase();const name=folder+'/'+Date.now()+'_'+Math.random().toString(36).substr(2,6)+'.'+ext;const{error}=await sb.storage.from(bucket).upload(name,blob,{upsert:true,contentType:'image/jpeg'});if(error)throw error;const{data}=sb.storage.from(bucket).getPublicUrl(name);return data.publicUrl}catch(e){console.warn('Upload falhou, usando local:',e.message)}}
-        return await compressImg(file,600,0.4);
+
+    /* --- Salvar Morador --- */
+    async saveR(r){
+        const row=this._unmapR(r);
+        if(dbMode==='cloud'&&sb){
+            try{
+                let res;
+                if(r._sbId){res=await sb.from('residents').update(row).eq('id',r._sbId).select().single()}
+                else{res=await sb.from('residents').insert(row).select().single()}
+                if(res.data){r._sbId=res.data.id;r.id=res.data.local_id||r.id}
+            }catch(e){console.error('Erro saveR:',e)}
+        }
+        this._saveLocal();
     },
+
+    /* --- Deletar Morador --- */
+    async deleteR(id){
+        const r=state.residents.find(x=>x.id===id);
+        if(dbMode==='cloud'&&sb&&r&&r._sbId){try{await sb.from('residents').delete().eq('id',r._sbId)}catch(e){}}
+        state.residents=state.residents.filter(x=>x.id!==id);
+        this._saveLocal();
+    },
+
+    /* --- Salvar Encomenda --- */
+    async savePkg(p){
+        const row=this._unmapP(p);
+        if(dbMode==='cloud'&&sb){
+            try{
+                let res;
+                if(p._sbId){res=await sb.from('packages').update(row).eq('id',p._sbId).select().single()}
+                else{res=await sb.from('packages').insert(row).select().single()}
+                if(res.data){p._sbId=res.data.id;p.id=res.data.local_id||p.id}
+            }catch(e){console.error('Erro savePkg:',e)}
+        }
+        this._saveLocal();
+    },
+
+    /* --- Salvar Prestador --- */
+    async savePv(pv){
+        const row=this._unmapPv(pv);
+        if(dbMode==='cloud'&&sb){
+            try{
+                let res;
+                if(pv._sbId){res=await sb.from('providers').update(row).eq('id',pv._sbId).select().single()}
+                else{res=await sb.from('providers').insert(row).select().single()}
+                if(res.data){pv._sbId=res.data.id;pv.id=res.data.local_id||pv.id}
+            }catch(e){console.error('Erro savePv:',e)}
+        }
+        this._saveLocal();
+    },
+
+    /* --- Deletar Prestador --- */
+    async deletePv(id){
+        const pv=state.providers.find(x=>x.id===id);
+        if(dbMode==='cloud'&&sb&&pv&&pv._sbId){try{await sb.from('providers').delete().eq('id',pv._sbId)}catch(e){}}
+        state.providers=state.providers.filter(x=>x.id!==id);
+        this._saveLocal();
+    },
+
+    /* --- Mapeamentos Supabase <-> Local --- */
     _mapR(r){return{id:r.local_id||genId(),_sbId:r.id,name:r.name||'',apartment:r.apartment||'',whatsapp:r.whatsapp||'',vehicles:safeP(r.vehicles),visitors:safeP(r.visitors)}},
     _unmapR(r){return{local_id:r.id,name:r.name,apartment:r.apartment,whatsapp:r.whatsapp,vehicles:JSON.stringify(r.vehicles||[]),visitors:JSON.stringify(r.visitors||[])}},
     _mapP(p){return{id:p.local_id||genId(),_sbId:p.id,code:p.code||'',residentId:p.resident_id||'',residentName:p.resident_name||'',apartment:p.apartment||'',description:p.description||'',trackingCode:p.tracking_code||'',receivedAt:p.received_at,status:p.status||'pending',deliveredAt:p.delivered_at,deliveredTo:p.delivered_to||null,photoUrl:p.photo_url||null}},
-    _unmapP(p){return{local_id:p.id,code:p.code,resident_id:p.residentId,resident_name:p.residentName,apartment:p.apartment,description:p.description,tracking_code:p.trackingCode||'',received_at:p.receivedAt,status:p.status,delivered_at:p.deliveredAt,delivered_to:p.deliveredTo,photo_url:p.photo_url||null}},
+    _unmapP(p){return{local_id:p.id,code:p.code,resident_id:p.residentId,resident_name:p.residentName,apartment:p.apartment,description:p.description,tracking_code:p.trackingCode||'',received_at:p.receivedAt,status:p.status,delivered_at:p.deliveredAt,delivered_to:p.deliveredTo,photo_url:p.photoUrl||null}},
     _mapPv(pv){return{id:pv.local_id||genId(),_sbId:pv.id,residentId:pv.resident_id||'',apartment:pv.apartment||'',name:pv.name||'',serviceType:pv.service_type||'',company:pv.company||'',phone:pv.phone||'',docType:pv.doc_type||'',docNumber:pv.doc_number||'',photos:safeP(pv.photos)}},
     _unmapPv(pv){return{local_id:pv.id,resident_id:pv.residentId,apartment:pv.apartment,name:pv.name,service_type:pv.serviceType,company:pv.company,phone:pv.phone,doc_type:pv.docType,doc_number:pv.docNumber,photos:JSON.stringify(pv.photos||[])}},
-    _saveLocal(){try{const c={residents:state.residents.map(r=>({...r})),packages:state.packages.map(p=>({...p,photoUrl:isB64(p.photoUrl)?null:p.photoUrl})),providers:state.providers.map(pv=>({...pv,photos:(pv.photos||[]).filter(ph=>!isB64(ph))}))};localStorage.setItem(LOCAL_KEY,JSON.stringify(c))}catch(e){console.error('Erro save local:',e)}},
-    _loadLocal(){try{const s=localStorage.getItem(LOCAL_KEY);if(s){const d=JSON.parse(s);state.residents=d.residents||[];state.packages=d.packages||[];state.providers=d.providers||[]}}catch(e){state.residents=[];state.packages=[];state.providers=[]}}
+
+    /* --- LocalStorage --- */
+    _saveLocal(){
+        try{
+            const c={
+                residents:state.residents.map(r=>({...r})),
+                packages:state.packages.map(p=>({...p,photoUrl:isB64(p.photoUrl)?null:p.photoUrl})),
+                providers:state.providers.map(pv=>({...pv,photos:(pv.photos||[]).filter(ph=>!isB64(ph))}))
+            };
+            localStorage.setItem(LOCAL_KEY,JSON.stringify(c));
+        }catch(e){console.error('Erro save local:',e)}
+    },
+    _loadLocal(){
+        try{
+            const s=localStorage.getItem(LOCAL_KEY);
+            if(s){const d=JSON.parse(s);state.residents=d.residents||[];state.packages=d.packages||[];state.providers=d.providers||[]}
+        }catch(e){state.residents=[];state.packages=[];state.providers=[]}
+    }
 };
 
-function genId(){return'id_'+Date.now()+'_'+Math.random().toString(36).substr(2,6)}
-function genCode(){const c='ABCDEFGHJKMNPQRSTUVWXYZ23456789';let r='';for(let i=0;i<6;i++)r+=c[Math.floor(Math.random()*c.length)];return r}
-function safeP(v){if(!v)return[];if(typeof v==='string')try{return JSON.parse(v)}catch(e){return[]}if(Array.isArray(v))return v;return[]}
-function isB64(s){return typeof s==='string'&&s.length>200&&s.startsWith('data:')}
-function formatPhone(p){const d=p.replace(/\D/g,'');if(d.length===11)return`(${d.substr(0,2)}) ${d.substr(2,5)}-${d.substr(7,4)}`;if(d.length===10)return`(${d.substr(0,2)}) ${d.substr(2,4)}-${d.substr(6,4)}`;return p}
-function waUrl(p,m){const d=p.replace(/\D/g,'');return`https://wa.me/${d.startsWith('55')?d:'55'+d}?text=${encodeURIComponent(m)}`}
-function fmtDate(iso){if(!iso)return'-';const d=new Date(iso);return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'})+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}
-function isToday(iso){if(!iso)return false;const d=new Date(iso),n=new Date();return d.getDate()===n.getDate()&&d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear()}
-function getR(id){return state.residents.find(r=>r.id===id)}
-function compressImg(file,maxW=800,q=0.5){return new Promise((res,rej)=>{const reader=new FileReader();reader.onload=e=>{const img=new Image();img.onload=()=>{const canvas=document.createElement('canvas');let w=img.width,h=img.height;if(w>maxW){h=(maxW/w)*h;w=maxW}canvas.width=w;canvas.height=h;canvas.getContext('2d').drawImage(img,0,0,w,h);res(canvas.toDataURL('image/jpeg',q))};img.onerror=rej;img.src=e.target.result};reader.onerror=rej;reader.readAsDataURL(file)})}
-
-function showToast(msg,type='info'){const c=document.getElementById('toastContainer'),icons={success:'fa-circle-check',error:'fa-circle-xmark',info:'fa-circle-info',warning:'fa-triangle-exclamation'};const t=document.createElement('div');t.className=`toast ${type}`;t.innerHTML=`<i class="fa-solid ${icons[type]||icons.info}"></i><span>${msg}</span>`;c.appendChild(t);setTimeout(()=>{t.classList.add('toast-exit');setTimeout(()=>t.remove(),300)},4000)}
-function openModal(h){document.getElementById('modalContent').innerHTML=h;document.getElementById('modalOverlay').classList.add('active');document.body.style.overflow='hidden';setTimeout(()=>{const f=document.querySelector('#modalContent input,#modalContent select');if(f)f.focus()},100)}
-function closeModal(){document.getElementById('modalOverlay').classList.remove('active');document.body.style.overflow=''}
-document.getElementById('modalOverlay').addEventListener('click',e=>{if(e.target===e.currentTarget)closeModal()});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();stopScanner()}});
-
-function openScanner(cb,title,sub,hint){scannerCallback=cb;document.getElementById('scannerTitle').textContent=title||'Escanear';document.getElementById('scannerSubtitle').textContent=sub||'';document.getElementById('scannerHint').textContent=hint||'';document.getElementById('scanOverlay').style.display='';document.getElementById('scannerModal').classList.add('active');document.body.style.overflow='hidden';const el=document.getElementById('qr-reader');el.innerHTML='';setTimeout(()=>{try{qrScanner=new Html5Qrcode('qr-reader');qrScanner.start({facingMode:'environment'},{fps:10,qrbox:{width:260,height:160},aspectRatio:1.3},onScanSuccess,()=>{}).catch(()=>{showToast('Nao foi possivel acessar a camera.','error');stopScanner()})}catch(e){stopScanner()}},300)}
-function onScanSuccess(text){if(navigator.vibrate)navigator.vibrate(100);if(qrScanner)qrScanner.pause(true);document.getElementById('scanOverlay').style.display='none';const b=document.getElementById('scannerBody'),f=document.createElement('div');f.className='absolute inset-0 flex items-center justify-center z-10';f.style.background='rgba(6,8,13,0.85)';const safe=text.replace(/'/g,"\\'").replace(/"/g,'&quot;');f.innerHTML=`<div class="text-center p-6"><div class="w-16 h-16 rounded-full bg-accent/10 flex items-center justify-center mx-auto mb-4"><i class="fa-solid fa-circle-check text-accent text-3xl"></i></div><p class="text-accent font-heading font-bold text-lg mb-2">Codigo Lido</p><p class="text-fg font-mono text-sm bg-bg/60 rounded-lg px-4 py-3 break-all max-w-xs">${text}</p><div class="flex gap-3 mt-5 justify-center"><button class="btn-secondary text-sm" onclick="resumeScanner()"><i class="fa-solid fa-rotate"></i> Outro</button><button class="btn-primary text-sm" onclick="confirmScannedCode('${safe}')"><i class="fa-solid fa-check"></i> Usar</button></div></div>`;b.appendChild(f)}
-function confirmScannedCode(c){stopScanner();if(scannerCallback)scannerCallback(c);scannerCallback=null}
-function resumeScanner(){const b=document.getElementById('scannerBody'),f=b.querySelector('.absolute');if(f)f.remove();document.getElementById('scanOverlay').style.display='';if(qrScanner)qrScanner.resume()}
-function stopScanner(){if(qrScanner){qrScanner.stop().then(()=>{qrScanner.clear();qrScanner=null}).catch(()=>{qrScanner=null})}document.getElementById('scannerModal').classList.remove('active');const b=document.getElementById('scannerBody'),f=b.querySelector('.absolute');if(f)f.remove();if(!document.getElementById('modalOverlay').classList.contains('active'))document.body.style.overflow=''}
-document.getElementById('scannerModal').addEventListener('click',e=>{if(e.target===e.currentTarget)stopScanner()});
-function openScannerForRegister(){openScanner(c=>{openNewPackageModal(c)},'Escanear Encomenda','Aponte para o codigo','Sera usado como rastreio.')}
-function openScannerForPickup(){openScanner(c=>{navigate('retirada');setTimeout(()=>{const i=document.getElementById('pickupCodeInput');if(i){i.value=c.toUpperCase().replace(/[^A-Z0-9]/g,'').substring(0,6);verifyPickupCode()}},200)},'Escanear Retirada','QR Code do morador','')}
-
-const titles={dashboard:['Painel Geral','Visao geral'],moradores:['Moradores','Cadastro'],prestadores:['Prestadores','Com documentos'],encomendas:['Encomendas','Registro'],retirada:['Retirada','Verificacao de codigo'],config:['Configuracao','Banco de dados e conexao']};
-function navigate(s){document.querySelectorAll('.sidebar-link').forEach(l=>{l.classList.toggle('active',l.dataset.section===s)});document.querySelectorAll('.section').forEach(x=>x.classList.remove('active'));document.getElementById('section-'+s).classList.add('active');document.getElementById('pageTitle').textContent=titles[s][0];document.getElementById('pageSubtitle').textContent=titles[s][1];renderSection(s);closeMobileSidebar()}
+/* ============================================
+   NAVEGACAO
+   ============================================ */
+const titles={
+    dashboard:['Painel Geral','Visao geral'],
+    moradores:['Moradores','Cadastro'],
+    prestadores:['Prestadores','Com documentos'],
+    encomendas:['Encomendas','Registro'],
+    retirada:['Retirada','Verificacao de codigo'],
+    config:['Configuracao','Banco de dados e conexao']
+};
+function navigate(s){
+    document.querySelectorAll('.sidebar-link').forEach(l=>{l.classList.toggle('active',l.dataset.section===s)});
+    document.querySelectorAll('.section').forEach(x=>x.classList.remove('active'));
+    document.getElementById('section-'+s).classList.add('active');
+    document.getElementById('pageTitle').textContent=titles[s][0];
+    document.getElementById('pageSubtitle').textContent=titles[s][1];
+    renderSection(s);
+    closeMobileSidebar();
+}
 document.querySelectorAll('.sidebar-link').forEach(l=>l.addEventListener('click',()=>navigate(l.dataset.section)));
-function renderSection(s){switch(s){case'dashboard':renderDashboard();break;case'moradores':renderResidents();break;case'prestadores':renderProviders();break;case'encomendas':renderPackages();break;case'retirada':renderPickup();break;case'config':renderConfig();break}}
+function renderSection(s){
+    switch(s){
+        case'dashboard':renderDashboard();break;
+        case'moradores':renderResidents();break;
+        case'prestadores':renderProviders();break;
+        case'encomendas':renderPackages();break;
+        case'retirada':renderPickup();break;
+        case'config':renderConfig();break;
+    }
+}
 
+/* ============================================
+   CONFIGURACAO
+   ============================================ */
 function renderConfig(){
     const cfg=getConfig();
     document.getElementById('section-config').innerHTML=`
     <div class="max-w-2xl mx-auto space-y-6">
         <div class="data-card p-6">
             <h3 class="font-heading font-bold text-fg text-lg mb-1">Conexao com Banco de Dados</h3>
-            <p class="text-muted text-sm mb-5">Configure o Supabase para salvar na nuvem. Sem configurar, os dados ficam so no navegador.</p>
+            <p class="text-muted text-sm mb-5">Configure o Supabase para salvar dados na nuvem e o imgBB para enviar fotos.</p>
             <div class="space-y-4">
-                <div><label class="form-label">Supabase Project URL</label><input type="text" class="form-input font-mono text-sm" id="cfgUrl" placeholder="https://xxxxx.supabase.co" value="${cfg.url}"></div>
-                <div><label class="form-label">Supabase Anon Key</label><input type="text" class="form-input font-mono text-xs" id="cfgKey" placeholder="eyJhbGciOiJIUzI1NiIs..." value="${cfg.key}"></div>
-                <div class="flex gap-3"><button class="btn-primary" onclick="testAndSave()"><i class="fa-solid fa-plug"></i> Salvar e Conectar</button><button class="btn-danger" onclick="desconectar()"><i class="fa-solid fa-unlink"></i> Desconectar</button></div>
+                <div>
+                    <label class="form-label">Supabase Project URL</label>
+                    <input type="text" class="form-input font-mono text-sm" id="cfgUrl" placeholder="https://xxxxx.supabase.co" value="${cfg.url}">
+                </div>
+                <div>
+                    <label class="form-label">Supabase Anon Key</label>
+                    <input type="text" class="form-input font-mono text-xs" id="cfgKey" placeholder="eyJhbGciOiJIUzI1NiIs..." value="${cfg.key}">
+                </div>
+                <div class="border-t border-border pt-4">
+                    <label class="form-label">imgBB API Key <span class="text-accent normal-case">(fotos)</span></label>
+                    <input type="text" class="form-input font-mono text-xs" id="cfgImgbb" placeholder="Cole sua chave do api.imgbb.com" value="${cfg.imgbbKey||''}">
+                    <p class="text-muted text-xs mt-2">Acesse <a href="https://api.imgbb.com/" target="_blank" class="text-accent hover:underline">api.imgbb.com</a>, crie conta e copie a chave.</p>
+                </div>
+                <div class="flex gap-3">
+                    <button class="btn-primary" onclick="testAndSave()"><i class="fa-solid fa-plug"></i> Salvar e Conectar</button>
+                    <button class="btn-danger" onclick="desconectar()"><i class="fa-solid fa-unlink"></i> Desconectar</button>
+                </div>
             </div>
         </div>
         <div class="data-card p-6">
             <h3 class="font-heading font-bold text-fg text-lg mb-3">Status do Sistema</h3>
             <div class="space-y-3 text-sm">
                 <div class="flex justify-between py-2 border-b border-border"><span class="text-muted">Modo</span><span class="font-medium ${dbMode==='cloud'?'text-success':'text-warning'}">${dbMode==='cloud'?'Nuvem (Supabase)':'Local (navegador)'}</span></div>
+                <div class="flex justify-between py-2 border-b border-border"><span class="text-muted">imgBB</span><span class="font-medium ${getConfig().imgbbKey?'text-success':'text-warning'}">${getConfig().imgbbKey?'Configurado':'Nao configurado'}</span></div>
                 <div class="flex justify-between py-2 border-b border-border"><span class="text-muted">Moradores</span><span class="text-fg font-medium">${state.residents.length}</span></div>
                 <div class="flex justify-between py-2 border-b border-border"><span class="text-muted">Encomendas</span><span class="text-fg font-medium">${state.packages.length}</span></div>
                 <div class="flex justify-between py-2 border-b border-border"><span class="text-muted">Pendentes</span><span class="text-fg font-medium">${state.packages.filter(p=>p.status==='pending').length}</span></div>
@@ -221,20 +498,62 @@ function renderConfig(){
                 <li>Crie um projeto (New Project)</li>
                 <li>Va em <strong class="text-fg">SQL Editor</strong> e execute o SQL abaixo</li>
                 <li>Va em <strong class="text-fg">Settings &rarr; API</strong> e copie URL e chave anon</li>
-                <li>Cole nos campos acima e clique <strong class="text-fg">Salvar e Conectar</strong></li>
+                <li>Acesse <a href="https://api.imgbb.com/" target="_blank" class="text-accent hover:underline font-medium">api.imgbb.com</a>, crie conta e copie a API Key</li>
+                <li>Cole tudo nos campos acima e clique <strong class="text-fg">Salvar e Conectar</strong></li>
                 <li>Para ver dados: <strong class="text-fg">Table Editor</strong> no Supabase</li>
             </ol>
             <div class="mt-4 p-4 rounded-lg bg-bg/60 border border-border">
                 <p class="text-muted text-xs font-medium mb-2">SQL para o SQL Editor do Supabase:</p>
-                <pre class="text-xs text-fg-dim font-mono whitespace-pre-wrap break-all leading-relaxed" style="max-height:200px;overflow-y:auto">CREATE TABLE residents (id UUID DEFAULT gen_random_uuid() PRIMARY KEY, local_id TEXT, name TEXT NOT NULL, apartment TEXT NOT NULL, whatsapp TEXT NOT NULL, vehicles JSONB DEFAULT '[]', visitors JSONB DEFAULT '[]', created_at TIMESTAMPTZ DEFAULT now());
-CREATE TABLE packages (id UUID DEFAULT gen_random_uuid() PRIMARY KEY, local_id TEXT, code TEXT NOT NULL, resident_id TEXT, resident_name TEXT NOT NULL, apartment TEXT NOT NULL, description TEXT NOT NULL, tracking_code TEXT DEFAULT '', received_at TIMESTAMPTZ DEFAULT now(), status TEXT DEFAULT 'pending', delivered_at TIMESTAMPTZ, delivered_to TEXT, photo_url TEXT, created_at TIMESTAMPTZ DEFAULT now());
-CREATE TABLE providers (id UUID DEFAULT gen_random_uuid() PRIMARY KEY, local_id TEXT, resident_id TEXT, apartment TEXT NOT NULL, name TEXT NOT NULL, service_type TEXT NOT NULL, company TEXT DEFAULT '', phone TEXT DEFAULT '', doc_type TEXT DEFAULT 'RG', doc_number TEXT DEFAULT '', photos JSONB DEFAULT '[]', created_at TIMESTAMPTZ DEFAULT now());
-INSERT INTO storage.buckets (id, name, public) VALUES ('encomendas','encomendas',true),('documentos','documentos',true);
-CREATE POLICY "pub" ON storage.objects FOR ALL USING (bucket_id IN ('encomendas','documentos')) WITH CHECK (bucket_id IN ('encomendas','documentos'));
-ALTER TABLE residents ENABLE ROW LEVEL SECURITY;ALTER TABLE packages ENABLE ROW LEVEL SECURITY;ALTER TABLE providers ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "all" ON residents FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "all" ON packages FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "all" ON providers FOR ALL USING (true) WITH CHECK (true);</pre>
+                <pre class="text-xs text-fg-dim font-mono whitespace-pre-wrap break-all leading-relaxed" style="max-height:220px;overflow-y:auto">CREATE TABLE residents (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  local_id TEXT,
+  name TEXT NOT NULL,
+  apartment TEXT NOT NULL,
+  whatsapp TEXT NOT NULL,
+  vehicles JSONB DEFAULT '[]',
+  visitors JSONB DEFAULT '[]',
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE packages (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  local_id TEXT,
+  code TEXT NOT NULL,
+  resident_id TEXT,
+  resident_name TEXT NOT NULL,
+  apartment TEXT NOT NULL,
+  description TEXT NOT NULL,
+  tracking_code TEXT DEFAULT '',
+  received_at TIMESTAMPTZ DEFAULT now(),
+  status TEXT DEFAULT 'pending',
+  delivered_at TIMESTAMPTZ,
+  delivered_to TEXT,
+  photo_url TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE providers (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  local_id TEXT,
+  resident_id TEXT,
+  apartment TEXT NOT NULL,
+  name TEXT NOT NULL,
+  service_type TEXT NOT NULL,
+  company TEXT DEFAULT '',
+  phone TEXT DEFAULT '',
+  doc_type TEXT DEFAULT 'RG',
+  doc_number TEXT DEFAULT '',
+  photos JSONB DEFAULT '[]',
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE residents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE packages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE providers ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "tudo" ON residents FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "tudo" ON packages FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "tudo" ON providers FOR ALL USING (true) WITH CHECK (true);</pre>
             </div>
         </div>
         <div class="data-card p-6">
@@ -247,81 +566,443 @@ CREATE POLICY "all" ON providers FOR ALL USING (true) WITH CHECK (true);</pre>
     </div>`;
 }
 
-async function testAndSave(){const url=document.getElementById('cfgUrl').value.trim(),key=document.getElementById('cfgKey').value.trim();if(!url||!key){showToast('Preencha URL e Key','error');return}saveConfig(url,key);setStatus('syncing','Testando...');try{const test=window.supabase.createClient(url,key);await test.from('residents').select('id').limit(1);sb=test;dbMode='cloud';showToast('Conexao OK!','success');await DB.load();renderConfig()}catch(e){setStatus('error','Erro: '+(e.message||e.msg||'verifique URL e Key'));showToast('Erro na conexao','error');dbMode='local'}}
-function desconectar(){saveConfig('','');sb=null;dbMode='local';showToast('Desconectado','info');renderConfig()}
-function exportData(){const d={exported:new Date().toISOString(),residents:state.residents,packages:state.packages,providers:state.providers};const b=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='portaria_backup_'+new Date().toISOString().slice(0,10)+'.json';a.click();showToast('Exportado','success')}
+async function testAndSave(){
+    const url=document.getElementById('cfgUrl').value.trim();
+    const key=document.getElementById('cfgKey').value.trim();
+    const imgbb=document.getElementById('cfgImgbb').value.trim();
+    if(!url||!key){showToast('Preencha URL e Key do Supabase','error');return}
+    if(!imgbb){showToast('Preencha a chave imgBB para fotos','warning');return}
+    saveConfig(url,key,imgbb);
+    setStatus('syncing','Testando...');
+    try{
+        const test=window.supabase.createClient(url,key);
+        await test.from('residents').select('id').limit(1);
+        sb=test;dbMode='cloud';
+        showToast('Conexao OK!','success');
+        await DB.load();
+        renderConfig();
+    }catch(e){
+        setStatus('error','Erro: '+(e.message||e.msg||'verifique URL e Key'));
+        showToast('Erro na conexao','error');
+        dbMode='local';
+    }
+}
 
-function renderDashboard(){const tr=state.residents.length,tv=state.residents.reduce((s,r)=>s+(r.vehicles||[]).length,0),pp=state.packages.filter(p=>p.status==='pending').length,dt=state.packages.filter(p=>p.status==='delivered'&&isToday(p.deliveredAt)).length,tp=state.providers.length;const rp=[...state.packages].sort((a,b)=>new Date(b.receivedAt)-new Date(a.receivedAt)).slice(0,5);
-document.getElementById('section-dashboard').innerHTML=`<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4 mb-8"><div class="stat-card" style="--card-accent:#00e5b0"><div class="flex items-center justify-between mb-3"><span class="text-muted text-sm">Moradores</span><div class="w-10 h-10 rounded-lg bg-accent-glow flex items-center justify-center"><i class="fa-solid fa-building-user text-accent"></i></div></div><p class="text-3xl font-heading font-bold text-fg">${tr}</p></div><div class="stat-card" style="--card-accent:#f59e0b"><div class="flex items-center justify-between mb-3"><span class="text-muted text-sm">Pendentes</span><div class="w-10 h-10 rounded-lg bg-yellow-500/10 flex items-center justify-center"><i class="fa-solid fa-box-open text-warning"></i></div></div><p class="text-3xl font-heading font-bold text-fg">${pp}</p></div><div class="stat-card" style="--card-accent:#22c55e"><div class="flex items-center justify-between mb-3"><span class="text-muted text-sm">Entregues Hoje</span><div class="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center"><i class="fa-solid fa-circle-check text-success"></i></div></div><p class="text-3xl font-heading font-bold text-fg">${dt}</p></div><div class="stat-card" style="--card-accent:#8b5cf6"><div class="flex items-center justify-between mb-3"><span class="text-muted text-sm">Veiculos</span><div class="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center"><i class="fa-solid fa-car text-purple-400"></i></div></div><p class="text-3xl font-heading font-bold text-fg">${tv}</p></div><div class="stat-card" style="--card-accent:#0ea5e9"><div class="flex items-center justify-between mb-3"><span class="text-muted text-sm">Prestadores</span><div class="w-10 h-10 rounded-lg bg-sky-500/10 flex items-center justify-center"><i class="fa-solid fa-id-card-clip text-sky-400"></i></div></div><p class="text-3xl font-heading font-bold text-fg">${tp}</p></div></div><div class="grid grid-cols-1 lg:grid-cols-3 gap-6"><div class="lg:col-span-2 data-card"><div class="flex items-center justify-between p-5 border-b border-border"><h3 class="font-heading font-bold text-fg">Ultimas Encomendas</h3><button class="text-accent text-sm font-medium hover:underline" onclick="navigate('encomendas')">Ver todas</button></div><div class="table-container"><table class="data-table"><thead><tr><th>Codigo</th><th>Morador</th><th>Apto</th><th>Descricao</th><th>Foto</th><th>Status</th></tr></thead><tbody>${rp.length===0?'<tr><td colspan="6" class="text-center text-muted py-8">Nenhuma</td></tr>':rp.map(p=>`<tr><td><span class="font-heading font-bold text-accent text-sm">${p.code}</span></td><td class="text-fg">${p.residentName}</td><td class="text-fg-dim">${p.apartment}</td><td class="text-fg-dim">${p.description}</td><td>${p.photoUrl?`<img src="${p.photoUrl}" class="w-8 h-8 rounded object-cover cursor-pointer" onclick="window.open('${p.photoUrl}','_blank')">`:'<span class="text-muted text-xs">-</span>'}</td><td>${p.status==='pending'?'<span class="badge badge-pending"><i class="fa-solid fa-clock text-[10px]"></i> Pendente</span>':'<span class="badge badge-delivered"><i class="fa-solid fa-check text-[10px]"></i> Entregue</span>'}</td></tr>`).join('')}</tbody></table></div></div><div class="data-card"><div class="p-5 border-b border-border"><h3 class="font-heading font-bold text-fg">Acoes Rapidas</h3></div><div class="p-5 flex flex-col gap-3"><button class="btn-scan w-full justify-center" onclick="openScannerForRegister()"><i class="fa-solid fa-qrcode"></i> Escanear Encomenda</button><button class="btn-primary w-full justify-center" onclick="openNewPackageModal()"><i class="fa-solid fa-box"></i> Registrar Manual</button><button class="btn-secondary w-full justify-center" onclick="navigate('retirada')"><i class="fa-solid fa-barcode"></i> Retirar Encomenda</button><button class="btn-secondary w-full justify-center" onclick="openProviderForm()"><i class="fa-solid fa-id-card-clip"></i> Novo Prestador</button><button class="btn-secondary w-full justify-center" onclick="openResidentForm()"><i class="fa-solid fa-user-plus"></i> Novo Morador</button></div></div></div>`}
+function desconectar(){
+    saveConfig('','','');
+    sb=null;dbMode='local';
+    showToast('Desconectado','info');
+    renderConfig();
+}
 
-function renderResidents(){const f=residentSearchQuery?state.residents.filter(r=>r.name.toLowerCase().includes(residentSearchQuery.toLowerCase())||r.apartment.toLowerCase().includes(residentSearchQuery.toLowerCase())):state.residents;document.getElementById('section-moradores').innerHTML=`<div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6"><div class="relative flex-1 max-w-md w-full"><i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-muted text-sm"></i><input type="text" class="form-input pl-11" placeholder="Buscar..." value="${residentSearchQuery}" oninput="residentSearchQuery=this.value;renderResidents()"></div><button class="btn-primary" onclick="openResidentForm()"><i class="fa-solid fa-user-plus"></i> Novo Morador</button></div>${f.length===0?'<div class="data-card p-12 text-center"><i class="fa-solid fa-building-user text-4xl text-muted mb-4"></i><p class="text-fg font-heading font-bold text-lg">Nenhum morador</p></div>':`<div class="data-card"><div class="table-container"><table class="data-table"><thead><tr><th>Nome</th><th>Apto</th><th>WhatsApp</th><th>Veiculos</th><th>Visitantes</th><th class="text-right">Acoes</th></tr></thead><tbody>${f.map(r=>`<tr><td><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-full bg-accent-glow flex items-center justify-center text-accent text-xs font-bold font-heading shrink-0">${r.name.split(' ').map(n=>n[0]).slice(0,2).join('')}</div><span class="text-fg font-medium">${r.name}</span></div></td><td class="text-fg-dim font-medium">${r.apartment}</td><td><a href="https://wa.me/55${r.whatsapp.replace(/\D/g,'')}" target="_blank" class="text-accent hover:underline text-sm">${formatPhone(r.whatsapp)}</a></td><td>${(r.vehicles||[]).length?`<span class="badge" style="background:rgba(139,92,246,.12);color:#c4b5fd">${r.vehicles.length}</span>`:'<span class="text-muted text-sm">-</span>'}</td><td>${(r.visitors||[]).length?`<span class="badge" style="background:rgba(59,130,246,.12);color:#93c5fd">${r.visitors.length}</span>`:'<span class="text-muted text-sm">-</span>'}</td><td><div class="flex items-center justify-end gap-2"><button class="btn-icon" onclick="openResidentDetail('${r.id}')"><i class="fa-solid fa-eye text-sm"></i></button><button class="btn-icon" onclick="openResidentForm('${r.id}')"><i class="fa-solid fa-pen text-sm"></i></button><button class="btn-icon" style="color:#ef4444;border-color:rgba(239,68,68,.2)" onclick="confirmDelR('${r.id}')"><i class="fa-solid fa-trash text-sm"></i></button></div></td></tr>`).join('')}</tbody></table></div></div>`}`}
+function exportData(){
+    const d={exported:new Date().toISOString(),residents:state.residents,packages:state.packages,providers:state.providers};
+    const b=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(b);
+    a.download='portaria_backup_'+new Date().toISOString().slice(0,10)+'.json';
+    a.click();
+    showToast('Exportado','success');
+}
 
-function openResidentForm(editId=null){const r=editId?getR(editId):null,isE=!!r;const veh=r?[...(r.vehicles||[])]:[{type:'Carro',brand:'',model:'',plate:''}];const vis=r?[...(r.visitors||[])]:[{name:'',relation:'Cunjuge'}];const vt=['Carro','Moto','Caminhonete','Van','Caminhao','Outro'];const rl=['Cunjuge','Filho(a)','Pai/Mae','Irmao(a)','Avo/Avo','Tio(a)','Amigo(a)','Empregado(a)','Prestador','Outro'];vehicleCounter=veh.length;visitorCounter=vis.length;
-openModal(`<div class="p-6 border-b border-border"><h3 class="font-heading font-bold text-fg text-lg">${isE?'Editar':'Novo'} Morador</h3></div><div class="p-6"><div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6"><div class="sm:col-span-2"><label class="form-label">Nome Completo</label><input type="text" class="form-input" id="frmName" value="${isE?r.name:''}"></div><div><label class="form-label">Apartamento</label><input type="text" class="form-input" id="frmApt" value="${isE?r.apartment:''}"></div><div><label class="form-label">WhatsApp</label><input type="tel" class="form-input" id="frmWa" value="${isE?r.whatsapp:''}"></div></div><div class="mb-6"><div class="flex items-center justify-between mb-3"><label class="form-label mb-0">Veiculos</label><button type="button" class="text-accent text-sm hover:underline" onclick="addVF()"><i class="fa-solid fa-plus text-xs"></i> Adicionar</button></div><div id="vList" class="flex flex-col gap-3">${veh.map((v,i)=>rvf(v,i,vt)).join('')}</div></div><div class="mb-6"><div class="flex items-center justify-between mb-3"><label class="form-label mb-0">Visitantes</label><button type="button" class="text-accent text-sm hover:underline" onclick="addViF()"><i class="fa-solid fa-plus text-xs"></i> Adicionar</button></div><div id="viList" class="flex flex-col gap-3">${vis.map((v,i)=>rvif(v,i,rl)).join('')}</div></div></div><div class="p-6 border-t border-border flex items-center justify-end gap-3"><button class="btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn-primary" onclick="saveR('${editId||''}')"><i class="fa-solid fa-check"></i> ${isE?'Salvar':'Cadastrar'}</button></div>`)}
+/* ============================================
+   DASHBOARD
+   ============================================ */
+function renderDashboard(){
+    const tr=state.residents.length;
+    const tv=state.residents.reduce((s,r)=>s+(r.vehicles||[]).length,0);
+    const pp=state.packages.filter(p=>p.status==='pending').length;
+    const dt=state.packages.filter(p=>p.status==='delivered'&&isToday(p.deliveredAt)).length;
+    const tp=state.providers.length;
+    const rp=[...state.packages].sort((a,b)=>new Date(b.receivedAt)-new Date(a.receivedAt)).slice(0,5);
+    document.getElementById('section-dashboard').innerHTML=`
+    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4 mb-8">
+        <div class="stat-card" style="--card-accent:#00e5b0"><div class="flex items-center justify-between mb-3"><span class="text-muted text-sm">Moradores</span><div class="w-10 h-10 rounded-lg bg-accent-glow flex items-center justify-center"><i class="fa-solid fa-building-user text-accent"></i></div></div><p class="text-3xl font-heading font-bold text-fg">${tr}</p></div>
+        <div class="stat-card" style="--card-accent:#f59e0b"><div class="flex items-center justify-between mb-3"><span class="text-muted text-sm">Pendentes</span><div class="w-10 h-10 rounded-lg bg-yellow-500/10 flex items-center justify-center"><i class="fa-solid fa-box-open text-warning"></i></div></div><p class="text-3xl font-heading font-bold text-fg">${pp}</p></div>
+        <div class="stat-card" style="--card-accent:#22c55e"><div class="flex items-center justify-between mb-3"><span class="text-muted text-sm">Entregues Hoje</span><div class="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center"><i class="fa-solid fa-circle-check text-success"></i></div></div><p class="text-3xl font-heading font-bold text-fg">${dt}</p></div>
+        <div class="stat-card" style="--card-accent:#8b5cf6"><div class="flex items-center justify-between mb-3"><span class="text-muted text-sm">Veiculos</span><div class="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center"><i class="fa-solid fa-car text-purple-400"></i></div></div><p class="text-3xl font-heading font-bold text-fg">${tv}</p></div>
+        <div class="stat-card" style="--card-accent:#0ea5e9"><div class="flex items-center justify-between mb-3"><span class="text-muted text-sm">Prestadores</span><div class="w-10 h-10 rounded-lg bg-sky-500/10 flex items-center justify-center"><i class="fa-solid fa-id-card-clip text-sky-400"></i></div></div><p class="text-3xl font-heading font-bold text-fg">${tp}</p></div>
+    </div>
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="lg:col-span-2 data-card">
+            <div class="flex items-center justify-between p-5 border-b border-border"><h3 class="font-heading font-bold text-fg">Ultimas Encomendas</h3><button class="text-accent text-sm font-medium hover:underline" onclick="navigate('encomendas')">Ver todas</button></div>
+            <div class="table-container"><table class="data-table"><thead><tr><th>Codigo</th><th>Morador</th><th>Apto</th><th>Descricao</th><th>Foto</th><th>Status</th></tr></thead><tbody>${rp.length===0?'<tr><td colspan="6" class="text-center text-muted py-8">Nenhuma</td></tr>':rp.map(p=>`<tr><td><span class="font-heading font-bold text-accent text-sm">${p.code}</span></td><td class="text-fg">${p.residentName}</td><td class="text-fg-dim">${p.apartment}</td><td class="text-fg-dim">${p.description}</td><td>${p.photoUrl?`<img src="${p.photoUrl}" class="w-8 h-8 rounded object-cover cursor-pointer" onclick="window.open('${p.photoUrl}','_blank')">`:'<span class="text-muted text-xs">-</span>'}</td><td>${p.status==='pending'?'<span class="badge badge-pending"><i class="fa-solid fa-clock text-[10px]"></i> Pendente</span>':'<span class="badge badge-delivered"><i class="fa-solid fa-check text-[10px]"></i> Entregue</span>'}</td></tr>`).join('')}</tbody></table></div>
+        </div>
+        <div class="data-card">
+            <div class="p-5 border-b border-border"><h3 class="font-heading font-bold text-fg">Acoes Rapidas</h3></div>
+            <div class="p-5 flex flex-col gap-3">
+                <button class="btn-scan w-full justify-center" onclick="openScannerForRegister()"><i class="fa-solid fa-qrcode"></i> Escanear Encomenda</button>
+                <button class="btn-primary w-full justify-center" onclick="openNewPackageModal()"><i class="fa-solid fa-box"></i> Registrar Manual</button>
+                <button class="btn-secondary w-full justify-center" onclick="navigate('retirada')"><i class="fa-solid fa-barcode"></i> Retirar Encomenda</button>
+                <button class="btn-secondary w-full justify-center" onclick="openProviderForm()"><i class="fa-solid fa-id-card-clip"></i> Novo Prestador</button>
+                <button class="btn-secondary w-full justify-center" onclick="openResidentForm()"><i class="fa-solid fa-user-plus"></i> Novo Morador</button>
+            </div>
+        </div>
+    </div>`;
+}
+
+/* ============================================
+   MORADORES
+   ============================================ */
+function renderResidents(){
+    const f=residentSearchQuery?state.residents.filter(r=>r.name.toLowerCase().includes(residentSearchQuery.toLowerCase())||r.apartment.toLowerCase().includes(residentSearchQuery.toLowerCase())):state.residents;
+    document.getElementById('section-moradores').innerHTML=`
+    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+        <div class="relative flex-1 max-w-md w-full"><i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-muted text-sm"></i><input type="text" class="form-input pl-11" placeholder="Buscar..." value="${residentSearchQuery}" oninput="residentSearchQuery=this.value;renderResidents()"></div>
+        <button class="btn-primary" onclick="openResidentForm()"><i class="fa-solid fa-user-plus"></i> Novo Morador</button>
+    </div>
+    ${f.length===0?'<div class="data-card p-12 text-center"><i class="fa-solid fa-building-user text-4xl text-muted mb-4"></i><p class="text-fg font-heading font-bold text-lg">Nenhum morador</p></div>':`
+    <div class="data-card"><div class="table-container"><table class="data-table"><thead><tr><th>Nome</th><th>Apto</th><th>WhatsApp</th><th>Veiculos</th><th>Visitantes</th><th class="text-right">Acoes</th></tr></thead><tbody>${f.map(r=>`<tr><td><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-full bg-accent-glow flex items-center justify-center text-accent text-xs font-bold font-heading shrink-0">${r.name.split(' ').map(n=>n[0]).slice(0,2).join('')}</div><span class="text-fg font-medium">${r.name}</span></div></td><td class="text-fg-dim font-medium">${r.apartment}</td><td><a href="https://wa.me/55${r.whatsapp.replace(/\D/g,'')}" target="_blank" class="text-accent hover:underline text-sm">${formatPhone(r.whatsapp)}</a></td><td>${(r.vehicles||[]).length?`<span class="badge" style="background:rgba(139,92,246,.12);color:#c4b5fd">${r.vehicles.length}</span>`:'<span class="text-muted text-sm">-</span>'}</td><td>${(r.visitors||[]).length?`<span class="badge" style="background:rgba(59,130,246,.12);color:#93c5fd">${r.visitors.length}</span>`:'<span class="text-muted text-sm">-</span>'}</td><td><div class="flex items-center justify-end gap-2"><button class="btn-icon" onclick="openResidentDetail('${r.id}')"><i class="fa-solid fa-eye text-sm"></i></button><button class="btn-icon" onclick="openResidentForm('${r.id}')"><i class="fa-solid fa-pen text-sm"></i></button><button class="btn-icon" style="color:#ef4444;border-color:rgba(239,68,68,.2)" onclick="confirmDelR('${r.id}')"><i class="fa-solid fa-trash text-sm"></i></button></div></td></tr>`).join('')}</tbody></table></div></div>`}`;
+}
+
+function openResidentForm(editId=null){
+    const r=editId?getR(editId):null, isE=!!r;
+    const veh=r?[...(r.vehicles||[])]:[{type:'Carro',brand:'',model:'',plate:''}];
+    const vis=r?[...(r.visitors||[])]:[{name:'',relation:'Cunjuge'}];
+    const vt=['Carro','Moto','Caminhonete','Van','Caminhao','Outro'];
+    const rl=['Cunjuge','Filho(a)','Pai/Mae','Irmao(a)','Avo/Avo','Tio(a)','Amigo(a)','Empregado(a)','Prestador','Outro'];
+    vehicleCounter=veh.length;visitorCounter=vis.length;
+    openModal(`<div class="p-6 border-b border-border"><h3 class="font-heading font-bold text-fg text-lg">${isE?'Editar':'Novo'} Morador</h3></div><div class="p-6"><div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6"><div class="sm:col-span-2"><label class="form-label">Nome Completo</label><input type="text" class="form-input" id="frmName" value="${isE?r.name:''}"></div><div><label class="form-label">Apartamento</label><input type="text" class="form-input" id="frmApt" value="${isE?r.apartment:''}"></div><div><label class="form-label">WhatsApp</label><input type="tel" class="form-input" id="frmWa" value="${isE?r.whatsapp:''}"></div></div><div class="mb-6"><div class="flex items-center justify-between mb-3"><label class="form-label mb-0">Veiculos</label><button type="button" class="text-accent text-sm hover:underline" onclick="addVF()"><i class="fa-solid fa-plus text-xs"></i> Adicionar</button></div><div id="vList" class="flex flex-col gap-3">${veh.map((v,i)=>rvf(v,i,vt)).join('')}</div></div><div class="mb-6"><div class="flex items-center justify-between mb-3"><label class="form-label mb-0">Visitantes</label><button type="button" class="text-accent text-sm hover:underline" onclick="addViF()"><i class="fa-solid fa-plus text-xs"></i> Adicionar</button></div><div id="viList" class="flex flex-col gap-3">${vis.map((v,i)=>rvif(v,i,rl)).join('')}</div></div></div><div class="p-6 border-t border-border flex items-center justify-end gap-3"><button class="btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn-primary" onclick="saveR('${editId||''}')"><i class="fa-solid fa-check"></i> ${isE?'Salvar':'Cadastrar'}</button></div>`);
+}
 
 function rvf(v,i,t){return`<div class="dynamic-item" id="v_${i}"><div class="flex items-center justify-between mb-3"><span class="text-fg-dim text-sm">Veiculo ${i+1}</span><button type="button" class="text-danger text-xs hover:underline" onclick="document.getElementById('v_${i}').remove()"><i class="fa-solid fa-trash text-[10px]"></i></button></div><div class="grid grid-cols-2 sm:grid-cols-4 gap-3"><div><label class="form-label">Tipo</label><select class="form-input form-select" data-vt>${t.map(x=>`<option value="${x}" ${v.type===x?'selected':''}>${x}</option>`).join('')}</select></div><div><label class="form-label">Marca</label><input type="text" class="form-input" value="${v.brand}" data-vb></div><div><label class="form-label">Modelo</label><input type="text" class="form-input" value="${v.model}" data-vm></div><div><label class="form-label">Placa</label><input type="text" class="form-input" value="${v.plate}" data-vp style="text-transform:uppercase"></div></div></div>`}
 function rvif(v,i,rl){return`<div class="dynamic-item" id="vi_${i}"><div class="flex items-center justify-between mb-3"><span class="text-fg-dim text-sm">Visitante ${i+1}</span><button type="button" class="text-danger text-xs hover:underline" onclick="document.getElementById('vi_${i}').remove()"><i class="fa-solid fa-trash text-[10px]"></i></button></div><div class="grid grid-cols-1 sm:grid-cols-3 gap-3"><div class="sm:col-span-2"><label class="form-label">Nome</label><input type="text" class="form-input" value="${v.name}" data-vin></div><div><label class="form-label">Relacao</label><select class="form-input form-select" data-vir>${rl.map(x=>`<option value="${x}" ${v.relation===x?'selected':''}>${x}</option>`).join('')}</select></div></div></div>`}
 function addVF(){const c=document.getElementById('vList');if(!c)return;vehicleCounter++;c.insertAdjacentHTML('beforeend',rvf({type:'Carro',brand:'',model:'',plate:''},'n_'+vehicleCounter,['Carro','Moto','Caminhonete','Van','Caminhao','Outro']))}
 function addViF(){const c=document.getElementById('viList');if(!c)return;visitorCounter++;c.insertAdjacentHTML('beforeend',rvif({name:'',relation:'Cunjuge'},'n_'+visitorCounter,['Cunjuge','Filho(a)','Pai/Mae','Irmao(a)','Avo/Avo','Tio(a)','Amigo(a)','Empregado(a)','Prestador','Outro']))}
 
-async function saveR(editId){const n=document.getElementById('frmName').value.trim(),a=document.getElementById('frmApt').value.trim(),w=document.getElementById('frmWa').value.trim();if(!n){showToast('Informe o nome','error');return}if(!a){showToast('Informe o apartamento','error');return}if(!w||w.replace(/\D/g,'').length<10){showToast('WhatsApp invalido','error');return}const vehs=[];document.querySelectorAll('#vList .dynamic-item').forEach(i=>{const t=i.querySelector('[data-vt]')?.value||'',b=i.querySelector('[data-vb]')?.value.trim()||'',m=i.querySelector('[data-vm]')?.value.trim()||'',p=i.querySelector('[data-vp]')?.value.trim().toUpperCase()||'';if(b||m||p)vehs.push({type:t,brand:b,model:m,plate:p})});const viss=[];document.querySelectorAll('#viList .dynamic-item').forEach(i=>{const n2=i.querySelector('[data-vin]')?.value.trim()||'',r=i.querySelector('[data-vir]')?.value||'';if(n2)viss.push({name:n2,relation:r})});if(editId){const idx=state.residents.findIndex(r=>r.id===editId);if(idx!==-1){state.residents[idx]={...state.residents[idx],name:n,apartment:a,whatsapp:w,vehicles:vehs,visitors:viss};state.packages.forEach(p=>{if(p.residentId===editId){p.residentName=n;p.apartment=a}});await DB.saveR(state.residents[idx])}showToast('Atualizado','success')}else{const nr={id:genId(),name:n,apartment:a,whatsapp:w,vehicles:vehs,visitors:viss,createdAt:new Date().toISOString()};state.residents.push(nr);await DB.saveR(nr);showToast('Cadastrado','success')}closeModal();renderResidents()}
+async function saveR(editId){
+    const n=document.getElementById('frmName').value.trim();
+    const a=document.getElementById('frmApt').value.trim();
+    const w=document.getElementById('frmWa').value.trim();
+    if(!n){showToast('Informe o nome','error');return}
+    if(!a){showToast('Informe o apartamento','error');return}
+    if(!w||w.replace(/\D/g,'').length<10){showToast('WhatsApp invalido','error');return}
+    const vehs=[];
+    document.querySelectorAll('#vList .dynamic-item').forEach(i=>{
+        const t=i.querySelector('[data-vt]')?.value||'';
+        const b=i.querySelector('[data-vb]')?.value.trim()||'';
+        const m=i.querySelector('[data-vm]')?.value.trim()||'';
+        const p=i.querySelector('[data-vp]')?.value.trim().toUpperCase()||'';
+        if(b||m||p)vehs.push({type:t,brand:b,model:m,plate:p});
+    });
+    const viss=[];
+    document.querySelectorAll('#viList .dynamic-item').forEach(i=>{
+        const n2=i.querySelector('[data-vin]')?.value.trim()||'';
+        const r=i.querySelector('[data-vir]')?.value||'';
+        if(n2)viss.push({name:n2,relation:r});
+    });
+    if(editId){
+        const idx=state.residents.findIndex(r=>r.id===editId);
+        if(idx!==-1){
+            state.residents[idx]={...state.residents[idx],name:n,apartment:a,whatsapp:w,vehicles:vehs,visitors:viss};
+            state.packages.forEach(p=>{if(p.residentId===editId){p.residentName=n;p.apartment=a}});
+            await DB.saveR(state.residents[idx]);
+        }
+        showToast('Atualizado','success');
+    }else{
+        const nr={id:genId(),name:n,apartment:a,whatsapp:w,vehicles:vehs,visitors:viss,createdAt:new Date().toISOString()};
+        state.residents.push(nr);
+        await DB.saveR(nr);
+        showToast('Cadastrado','success');
+    }
+    closeModal();renderResidents();
+}
 
-function confirmDelR(id){const r=getR(id);if(!r)return;if(state.packages.filter(p=>p.residentId===id&&p.status==='pending').length>0){showToast('Existe encomenda pendente','error');return}openModal(`<div class="p-6 text-center"><div class="w-16 h-16 rounded-full bg-danger/10 flex items-center justify-center mx-auto mb-4"><i class="fa-solid fa-triangle-exclamation text-danger text-2xl"></i></div><h3 class="font-heading font-bold text-fg text-lg mb-2">Excluir</h3><p class="text-fg-dim">Excluir <strong class="text-fg">${r.name}</strong>?</p></div><div class="p-6 border-t border-border flex items-center justify-center gap-3"><button class="btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn-danger" style="padding:10px 22px" onclick="doDelR('${id}')"><i class="fa-solid fa-trash"></i> Excluir</button></div>`)}
-async function doDelR(id){await DB.deleteR(id);state.providers=state.providers.filter(x=>x.residentId!==id);state.packages=state.packages.filter(x=>x.residentId!==id);DB._saveLocal();closeModal();showToast('Excluido','success');renderResidents()}
+function confirmDelR(id){
+    const r=getR(id);if(!r)return;
+    if(state.packages.filter(p=>p.residentId===id&&p.status==='pending').length>0){showToast('Existe encomenda pendente','error');return}
+    openModal(`<div class="p-6 text-center"><div class="w-16 h-16 rounded-full bg-danger/10 flex items-center justify-center mx-auto mb-4"><i class="fa-solid fa-triangle-exclamation text-danger text-2xl"></i></div><h3 class="font-heading font-bold text-fg text-lg mb-2">Excluir</h3><p class="text-fg-dim">Excluir <strong class="text-fg">${r.name}</strong>?</p></div><div class="p-6 border-t border-border flex items-center justify-center gap-3"><button class="btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn-danger" style="padding:10px 22px" onclick="doDelR('${id}')"><i class="fa-solid fa-trash"></i> Excluir</button></div>`);
+}
+async function doDelR(id){
+    await DB.deleteR(id);
+    state.providers=state.providers.filter(x=>x.residentId!==id);
+    state.packages=state.packages.filter(x=>x.residentId!==id);
+    DB._saveLocal();closeModal();showToast('Excluido','success');renderResidents();
+}
 
-function openResidentDetail(id){const r=getR(id);if(!r)return;const pk=state.packages.filter(p=>p.residentId===id).sort((a,b)=>new Date(b.receivedAt)-new Date(a.receivedAt));const pv=state.providers.filter(p=>p.residentId===id);openModal(`<div class="p-6 border-b border-border"><div class="flex items-center gap-4"><div class="w-14 h-14 rounded-2xl bg-accent-glow border border-accent/20 flex items-center justify-center text-accent text-lg font-bold font-heading">${r.name.split(' ').map(n=>n[0]).slice(0,2).join('')}</div><div class="flex-1"><h3 class="font-heading font-bold text-fg text-lg">${r.name}</h3><p class="text-muted text-sm">Apto ${r.apartment}</p></div><a href="https://wa.me/55${r.whatsapp.replace(/\D/g,'')}" target="_blank" class="btn-icon" style="color:#25d366;border-color:rgba(37,211,102,.3)"><i class="fa-brands fa-whatsapp text-lg"></i></a></div></div><div class="p-6 space-y-5"><div><h4 class="form-label mb-2">Contato</h4><p class="text-fg"><i class="fa-brands fa-whatsapp text-[#25d366]"></i> ${formatPhone(r.whatsapp)}</p></div><div><h4 class="form-label mb-2">Veiculos (${(r.vehicles||[]).length})</h4>${(r.vehicles||[]).length===0?'<p class="text-muted text-sm">Nenhum</p>':`<div class="flex flex-col gap-2">${(r.vehicles||[]).map(v=>`<div class="tag" style="padding:10px 14px"><i class="fa-solid ${v.type==='Moto'?'fa-motorcycle':'fa-car'} text-accent text-xs"></i><span class="text-fg font-medium">${v.brand} ${v.model}</span><span class="text-muted">|</span><span class="text-accent font-heading font-bold">${v.plate}</span></div>`).join('')}</div>`}</div><div><h4 class="form-label mb-2">Visitantes (${(r.visitors||[]).length})</h4>${(r.visitors||[]).length===0?'<p class="text-muted text-sm">Nenhum</p>':`<div class="flex flex-col gap-2">${(r.visitors||[]).map(v=>`<div class="tag" style="padding:10px 14px"><i class="fa-solid fa-user text-fg-dim text-xs"></i><span class="text-fg font-medium">${v.name}</span><span class="text-muted">-</span><span class="text-fg-dim text-xs">${v.relation}</span></div>`).join('')}</div>`}</div><div><h4 class="form-label mb-2">Prestadores (${pv.length})</h4>${pv.length===0?'<p class="text-muted text-sm">Nenhum</p>':`<div class="flex flex-col gap-2">${pv.map(p=>`<div class="tag" style="padding:10px 14px"><i class="fa-solid fa-id-card-clip text-sky-400 text-xs"></i><span class="text-fg font-medium">${p.name}</span><span class="text-muted">-</span><span class="text-fg-dim text-xs">${p.serviceType}</span></div>`).join('')}</div>`}</div><div><h4 class="form-label mb-2">Encomendas (${pk.length})</h4>${pk.length===0?'<p class="text-muted text-sm">Nenhuma</p>':`<div class="flex flex-col gap-2">${pk.slice(0,6).map(p=>`<div class="flex items-center justify-between py-2 px-3 rounded-lg bg-bg/50 gap-3"><div class="flex items-center gap-3 min-w-0">${p.photoUrl?`<img src="${p.photoUrl}" class="w-7 h-7 rounded object-cover shrink-0">`:''}<span class="font-heading font-bold text-accent text-sm shrink-0">${p.code}</span><span class="text-fg-dim text-sm truncate">${p.description}</span></div><div class="flex items-center gap-2 shrink-0">${p.status==='pending'?'<span class="badge badge-pending text-[11px]">Pendente</span>':`<span class="badge badge-delivered text-[11px]">Entregue</span>${p.deliveredTo?`<span class="text-muted text-[11px]">${p.deliveredTo}</span>`:''}`}</div></div>`).join('')}</div>`}</div></div><div class="p-6 border-t border-border flex items-center justify-end gap-3"><button class="btn-secondary" onclick="closeModal()">Fechar</button><button class="btn-primary" onclick="closeModal();openResidentForm('${r.id}')"><i class="fa-solid fa-pen"></i> Editar</button></div>`)}
+function openResidentDetail(id){
+    const r=getR(id);if(!r)return;
+    const pk=state.packages.filter(p=>p.residentId===id).sort((a,b)=>new Date(b.receivedAt)-new Date(a.receivedAt));
+    const pv=state.providers.filter(p=>p.residentId===id);
+    openModal(`<div class="p-6 border-b border-border"><div class="flex items-center gap-4"><div class="w-14 h-14 rounded-2xl bg-accent-glow border border-accent/20 flex items-center justify-center text-accent text-lg font-bold font-heading">${r.name.split(' ').map(n=>n[0]).slice(0,2).join('')}</div><div class="flex-1"><h3 class="font-heading font-bold text-fg text-lg">${r.name}</h3><p class="text-muted text-sm">Apto ${r.apartment}</p></div><a href="https://wa.me/55${r.whatsapp.replace(/\D/g,'')}" target="_blank" class="btn-icon" style="color:#25d366;border-color:rgba(37,211,102,.3)"><i class="fa-brands fa-whatsapp text-lg"></i></a></div></div><div class="p-6 space-y-5"><div><h4 class="form-label mb-2">Contato</h4><p class="text-fg"><i class="fa-brands fa-whatsapp text-[#25d366]"></i> ${formatPhone(r.whatsapp)}</p></div><div><h4 class="form-label mb-2">Veiculos (${(r.vehicles||[]).length})</h4>${(r.vehicles||[]).length===0?'<p class="text-muted text-sm">Nenhum</p>':`<div class="flex flex-col gap-2">${(r.vehicles||[]).map(v=>`<div class="tag" style="padding:10px 14px"><i class="fa-solid ${v.type==='Moto'?'fa-motorcycle':'fa-car'} text-accent text-xs"></i><span class="text-fg font-medium">${v.brand} ${v.model}</span><span class="text-muted">|</span><span class="text-accent font-heading font-bold">${v.plate}</span></div>`).join('')}</div>`}</div><div><h4 class="form-label mb-2">Visitantes (${(r.visitors||[]).length})</h4>${(r.visitors||[]).length===0?'<p class="text-muted text-sm">Nenhum</p>':`<div class="flex flex-col gap-2">${(r.visitors||[]).map(v=>`<div class="tag" style="padding:10px 14px"><i class="fa-solid fa-user text-fg-dim text-xs"></i><span class="text-fg font-medium">${v.name}</span><span class="text-muted">-</span><span class="text-fg-dim text-xs">${v.relation}</span></div>`).join('')}</div>`}</div><div><h4 class="form-label mb-2">Prestadores (${pv.length})</h4>${pv.length===0?'<p class="text-muted text-sm">Nenhum</p>':`<div class="flex flex-col gap-2">${pv.map(p=>`<div class="tag" style="padding:10px 14px"><i class="fa-solid fa-id-card-clip text-sky-400 text-xs"></i><span class="text-fg font-medium">${p.name}</span><span class="text-muted">-</span><span class="text-fg-dim text-xs">${p.serviceType}</span></div>`).join('')}</div>`}</div><div><h4 class="form-label mb-2">Encomendas (${pk.length})</h4>${pk.length===0?'<p class="text-muted text-sm">Nenhuma</p>':`<div class="flex flex-col gap-2">${pk.slice(0,6).map(p=>`<div class="flex items-center justify-between py-2 px-3 rounded-lg bg-bg/50 gap-3"><div class="flex items-center gap-3 min-w-0">${p.photoUrl?`<img src="${p.photoUrl}" class="w-7 h-7 rounded object-cover shrink-0">`:''}<span class="font-heading font-bold text-accent text-sm shrink-0">${p.code}</span><span class="text-fg-dim text-sm truncate">${p.description}</span></div><div class="flex items-center gap-2 shrink-0">${p.status==='pending'?'<span class="badge badge-pending text-[11px]">Pendente</span>':`<span class="badge badge-delivered text-[11px]">Entregue</span>${p.deliveredTo?`<span class="text-muted text-[11px]">${p.deliveredTo}</span>`:''}`}</div></div>`).join('')}</div>`}</div></div><div class="p-6 border-t border-border flex items-center justify-end gap-3"><button class="btn-secondary" onclick="closeModal()">Fechar</button><button class="btn-primary" onclick="closeModal();openResidentForm('${r.id}')"><i class="fa-solid fa-pen"></i> Editar</button></div>`);
+}
 
+/* ============================================
+   PRESTADORES
+   ============================================ */
 const sTypes=['Eletricista','Encanador','Faxineiro(a)','Pintor','Pedreiro','Montador','Tecnico','Mecanico','Cozinheiro(a)','Cuidador(a)','Diarista','Jardineiro','Outro'];
 const dTypes=['RG','CNH','Cracha','Carteira de Trabalho','Outro'];
 
-function renderProviders(){const f=providerSearchQuery?state.providers.filter(p=>p.name.toLowerCase().includes(providerSearchQuery.toLowerCase())||p.apartment.toLowerCase().includes(providerSearchQuery.toLowerCase())):[...state.providers].sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
-document.getElementById('section-prestadores').innerHTML=`<div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6"><div class="relative flex-1 max-w-md w-full"><i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-muted text-sm"></i><input type="text" class="form-input pl-11" placeholder="Buscar..." value="${providerSearchQuery}" oninput="providerSearchQuery=this.value;renderProviders()"></div><button class="btn-primary" onclick="openProviderForm()"><i class="fa-solid fa-user-plus"></i> Novo Prestador</button></div>${f.length===0?'<div class="data-card p-12 text-center"><i class="fa-solid fa-id-card-clip text-4xl text-muted mb-4"></i><p class="text-fg font-heading font-bold text-lg">Nenhum prestador</p></div>':`<div class="data-card"><div class="table-container"><table class="data-table"><thead><tr><th>Prestador</th><th>Servico</th><th>Apto</th><th>Telefone</th><th>Docs</th><th class="text-right">Acoes</th></tr></thead><tbody>${f.map(p=>`<tr><td><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-full bg-sky-500/10 flex items-center justify-center text-sky-400 text-xs font-bold font-heading shrink-0">${p.name.split(' ').map(n=>n[0]).slice(0,2).join('')}</div><div><span class="text-fg font-medium block">${p.name}</span><span class="text-muted text-xs">${p.docType}: ${p.docNumber||'-'}</span></div></div></td><td class="text-fg-dim">${p.serviceType}</td><td class="text-fg-dim font-medium">${p.apartment}</td><td>${p.phone?`<a href="https://wa.me/55${p.phone.replace(/\D/g,'')}" target="_blank" class="text-accent hover:underline text-sm">${formatPhone(p.phone)}</a>`:'<span class="text-muted text-sm">-</span>'}</td><td>${(p.photos||[]).length?`<span class="badge" style="background:rgba(14,165,233,.12);color:#7dd3fc">${p.photos.length}</span>`:'<span class="text-muted text-sm">-</span>'}</td><td><div class="flex items-center justify-end gap-2"><button class="btn-icon" onclick="openPvDetail('${p.id}')"><i class="fa-solid fa-eye text-sm"></i></button><button class="btn-icon" onclick="openProviderForm('${p.id}')"><i class="fa-solid fa-pen text-sm"></i></button><button class="btn-icon" style="color:#ef4444;border-color:rgba(239,68,68,.2)" onclick="confirmDelPv('${p.id}')"><i class="fa-solid fa-trash text-sm"></i></button></div></td></tr>`).join('')}</tbody></table></div></div>`}`}
+function renderProviders(){
+    const f=providerSearchQuery?state.providers.filter(p=>p.name.toLowerCase().includes(providerSearchQuery.toLowerCase())||p.apartment.toLowerCase().includes(providerSearchQuery.toLowerCase())):[...state.providers].sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
+    document.getElementById('section-prestadores').innerHTML=`
+    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+        <div class="relative flex-1 max-w-md w-full"><i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-muted text-sm"></i><input type="text" class="form-input pl-11" placeholder="Buscar..." value="${providerSearchQuery}" oninput="providerSearchQuery=this.value;renderProviders()"></div>
+        <button class="btn-primary" onclick="openProviderForm()"><i class="fa-solid fa-user-plus"></i> Novo Prestador</button>
+    </div>
+    ${f.length===0?'<div class="data-card p-12 text-center"><i class="fa-solid fa-id-card-clip text-4xl text-muted mb-4"></i><p class="text-fg font-heading font-bold text-lg">Nenhum prestador</p></div>':`
+    <div class="data-card"><div class="table-container"><table class="data-table"><thead><tr><th>Prestador</th><th>Servico</th><th>Apto</th><th>Telefone</th><th>Docs</th><th class="text-right">Acoes</th></tr></thead><tbody>${f.map(p=>`<tr><td><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-full bg-sky-500/10 flex items-center justify-center text-sky-400 text-xs font-bold font-heading shrink-0">${p.name.split(' ').map(n=>n[0]).slice(0,2).join('')}</div><div><span class="text-fg font-medium block">${p.name}</span><span class="text-muted text-xs">${p.docType}: ${p.docNumber||'-'}</span></div></div></td><td class="text-fg-dim">${p.serviceType}</td><td class="text-fg-dim font-medium">${p.apartment}</td><td>${p.phone?`<a href="https://wa.me/55${p.phone.replace(/\D/g,'')}" target="_blank" class="text-accent hover:underline text-sm">${formatPhone(p.phone)}</a>`:'<span class="text-muted text-sm">-</span>'}</td><td>${(p.photos||[]).length?`<span class="badge" style="background:rgba(14,165,233,.12);color:#7dd3fc">${p.photos.length}</span>`:'<span class="text-muted text-sm">-</span>'}</td><td><div class="flex items-center justify-end gap-2"><button class="btn-icon" onclick="openPvDetail('${p.id}')"><i class="fa-solid fa-eye text-sm"></i></button><button class="btn-icon" onclick="openProviderForm('${p.id}')"><i class="fa-solid fa-pen text-sm"></i></button><button class="btn-icon" style="color:#ef4444;border-color:rgba(239,68,68,.2)" onclick="confirmDelPv('${p.id}')"><i class="fa-solid fa-trash text-sm"></i></button></div></td></tr>`).join('')}</tbody></table></div></div>`}`;
+}
 
-function openProviderForm(editId=null){if(!state.residents.length){showToast('Cadastre um morador primeiro','warning');return}const p=editId?state.providers.find(x=>x.id===editId):null,isE=!!p;tempProviderPhotos=isE?[...(p.photos||[])]:[];const opts=state.residents.map(r=>`<option value="${r.id}" ${isE&&p.residentId===r.id?'selected':''}>${r.name} - Apto ${r.apartment}</option>`).join('');
-openModal(`<div class="p-6 border-b border-border"><h3 class="font-heading font-bold text-fg text-lg">${isE?'Editar':'Novo'} Prestador</h3></div><div class="p-6 space-y-4"><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div class="sm:col-span-2"><label class="form-label">Nome</label><input type="text" class="form-input" id="pvName" value="${isE?p.name:''}"></div><div><label class="form-label">Apartamento</label><select class="form-input form-select" id="pvApt"><option value="">Selecione...</option>${opts}</select></div><div><label class="form-label">Servico</label><select class="form-input form-select" id="pvSvc">${sTypes.map(s=>`<option value="${s}" ${isE&&p.serviceType===s?'selected':''}>${s}</option>`).join('')}</select></div><div><label class="form-label">Empresa</label><input type="text" class="form-input" id="pvCo" value="${isE?p.company:''}"></div><div><label class="form-label">Telefone</label><input type="tel" class="form-input" id="pvPh" value="${isE?p.phone:''}"></div><div><label class="form-label">Tipo Documento</label><select class="form-input form-select" id="pvDt">${dTypes.map(d=>`<option value="${d}" ${isE&&p.docType===d?'selected':''}>${d}</option>`).join('')}</select></div><div><label class="form-label">N Documento</label><input type="text" class="form-input" id="pvDn" value="${isE?p.docNumber:''}"></div></div><div><div class="flex items-center justify-between mb-3"><label class="form-label mb-0">Fotos dos Documentos</label><span class="text-muted text-xs" id="phCt">${tempProviderPhotos.length}</span></div><div class="photo-upload" id="phArea" onclick="document.getElementById('phFile').click()"><input type="file" id="phFile" accept="image/*" capture="environment" multiple style="display:none" onchange="handlePvPh(this.files)"><div id="phPl"><i class="fa-solid fa-camera text-3xl text-muted mb-3"></i><p class="text-fg-dim text-sm">Toque para bater foto</p></div></div><div class="photo-grid mt-3" id="phGrid"></div></div></div><div class="p-6 border-t border-border flex items-center justify-end gap-3"><button class="btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn-primary" onclick="savePv('${editId||''}')"><i class="fa-solid fa-check"></i> ${isE?'Salvar':'Cadastrar'}</button></div>`);updatePvPrev()}
+function openProviderForm(editId=null){
+    if(!state.residents.length){showToast('Cadastre um morador primeiro','warning');return}
+    const p=editId?state.providers.find(x=>x.id===editId):null, isE=!!p;
+    tempProviderPhotos=isE?[...(p.photos||[])]:[];
+    const opts=state.residents.map(r=>`<option value="${r.id}" ${isE&&p.residentId===r.id?'selected':''}>${r.name} - Apto ${r.apartment}</option>`).join('');
+    openModal(`<div class="p-6 border-b border-border"><h3 class="font-heading font-bold text-fg text-lg">${isE?'Editar':'Novo'} Prestador</h3></div><div class="p-6 space-y-4"><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div class="sm:col-span-2"><label class="form-label">Nome</label><input type="text" class="form-input" id="pvName" value="${isE?p.name:''}"></div><div><label class="form-label">Apartamento</label><select class="form-input form-select" id="pvApt"><option value="">Selecione...</option>${opts}</select></div><div><label class="form-label">Servico</label><select class="form-input form-select" id="pvSvc">${sTypes.map(s=>`<option value="${s}" ${isE&&p.serviceType===s?'selected':''}>${s}</option>`).join('')}</select></div><div><label class="form-label">Empresa</label><input type="text" class="form-input" id="pvCo" value="${isE?p.company:''}"></div><div><label class="form-label">Telefone</label><input type="tel" class="form-input" id="pvPh" value="${isE?p.phone:''}"></div><div><label class="form-label">Tipo Documento</label><select class="form-input form-select" id="pvDt">${dTypes.map(d=>`<option value="${d}" ${isE&&p.docType===d?'selected':''}>${d}</option>`).join('')}</select></div><div><label class="form-label">N Documento</label><input type="text" class="form-input" id="pvDn" value="${isE?p.docNumber:''}"></div></div><div><div class="flex items-center justify-between mb-3"><label class="form-label mb-0">Fotos dos Documentos</label><span class="text-muted text-xs" id="phCt">${tempProviderPhotos.length}</span></div><div class="photo-upload" id="phArea" onclick="document.getElementById('phFile').click()"><input type="file" id="phFile" accept="image/*" capture="environment" multiple style="display:none" onchange="handlePvPh(this.files)"><div id="phPl"><i class="fa-solid fa-camera text-3xl text-muted mb-3"></i><p class="text-fg-dim text-sm">Toque para bater foto</p></div></div><div class="photo-grid mt-3" id="phGrid"></div></div></div><div class="p-6 border-t border-border flex items-center justify-end gap-3"><button class="btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn-primary" onclick="savePv('${editId||''}')"><i class="fa-solid fa-check"></i> ${isE?'Salvar':'Cadastrar'}</button></div>`);
+    updatePvPrev();
+}
 
-async function handlePvPh(files){for(const f of files){try{const url=await DB.uploadPhoto(f,'documentos','doc');tempProviderPhotos.push(url);showToast('Foto salva','success')}catch(e){showToast('Erro na foto','error')}}updatePvPrev();document.getElementById('phFile').value=''}
+async function handlePvPh(files){
+    for(const f of files){
+        try{
+            const url=await uploadPhotoToImgBB(f,'doc');
+            tempProviderPhotos.push(url);
+            showToast('Foto salva','success');
+        }catch(e){showToast('Erro na foto','error')}
+    }
+    updatePvPrev();
+    document.getElementById('phFile').value='';
+}
 function removePvPh(i){tempProviderPhotos.splice(i,1);updatePvPrev()}
-function updatePvPrev(){const g=document.getElementById('phGrid'),c=document.getElementById('phCt'),a=document.getElementById('phArea');if(!g)return;if(c)c.textContent=tempProviderPhotos.length;if(a)a.classList.toggle('has-photo',tempProviderPhotos.length>0);g.innerHTML=tempProviderPhotos.map((p,i)=>`<div class="photo-grid-item"><img src="${p}" alt="Doc"><div class="photo-label">Doc ${i+1}</div><button class="photo-remove" onclick="event.stopPropagation();removePvPh(${i})"><i class="fa-solid fa-xmark"></i></button></div>`).join('')}
+function updatePvPrev(){
+    const g=document.getElementById('phGrid'),c=document.getElementById('phCt'),a=document.getElementById('phArea');
+    if(!g)return;
+    if(c)c.textContent=tempProviderPhotos.length;
+    if(a)a.classList.toggle('has-photo',tempProviderPhotos.length>0);
+    g.innerHTML=tempProviderPhotos.map((p,i)=>`<div class="photo-grid-item"><img src="${p}" alt="Doc"><div class="photo-label">Doc ${i+1}</div><button class="photo-remove" onclick="event.stopPropagation();removePvPh(${i})"><i class="fa-solid fa-xmark"></i></button></div>`).join('');
+}
 
-async function savePv(editId){const n=document.getElementById('pvName').value.trim(),rid=document.getElementById('pvApt').value,st=document.getElementById('pvSvc').value,co=document.getElementById('pvCo').value.trim(),ph=document.getElementById('pvPh').value.trim(),dt=document.getElementById('pvDt').value,dn=document.getElementById('pvDn').value.trim();if(!n){showToast('Informe o nome','error');return}if(!rid){showToast('Selecione o apartamento','error');return}const r=getR(rid),apt=r?r.apartment:'';const data={name:n,residentId:rid,apartment:apt,serviceType:st,company:co,phone:ph,docType:dt,docNumber:dn,photos:[...tempProviderPhotos]};if(editId){const idx=state.providers.findIndex(p=>p.id===editId);if(idx!==-1){state.providers[idx]={...state.providers[idx],...data};await DB.savePv(state.providers[idx])}showToast('Atualizado','success')}else{data.id=genId();data.createdAt=new Date().toISOString();state.providers.push(data);await DB.savePv(data);showToast('Cadastrado','success')}tempProviderPhotos=[];closeModal();renderProviders()}
+async function savePv(editId){
+    const n=document.getElementById('pvName').value.trim();
+    const rid=document.getElementById('pvApt').value;
+    const st=document.getElementById('pvSvc').value;
+    const co=document.getElementById('pvCo').value.trim();
+    const ph=document.getElementById('pvPh').value.trim();
+    const dt=document.getElementById('pvDt').value;
+    const dn=document.getElementById('pvDn').value.trim();
+    if(!n){showToast('Informe o nome','error');return}
+    if(!rid){showToast('Selecione o apartamento','error');return}
+    const r=getR(rid), apt=r?r.apartment:'';
+    const data={name:n,residentId:rid,apartment:apt,serviceType:st,company:co,phone:ph,docType:dt,docNumber:dn,photos:[...tempProviderPhotos]};
+    if(editId){
+        const idx=state.providers.findIndex(p=>p.id===editId);
+        if(idx!==-1){state.providers[idx]={...state.providers[idx],...data};await DB.savePv(state.providers[idx])}
+        showToast('Atualizado','success');
+    }else{
+        data.id=genId();data.createdAt=new Date().toISOString();
+        state.providers.push(data);await DB.savePv(data);showToast('Cadastrado','success');
+    }
+    tempProviderPhotos=[];closeModal();renderProviders();
+}
 
-function openPvDetail(id){const p=state.providers.find(x=>x.id===id);if(!p)return;openModal(`<div class="p-6 border-b border-border"><div class="flex items-center gap-4"><div class="w-14 h-14 rounded-2xl bg-sky-500/10 flex items-center justify-center text-sky-400 text-lg font-bold font-heading">${p.name.split(' ').map(n=>n[0]).slice(0,2).join('')}</div><div class="flex-1"><h3 class="font-heading font-bold text-fg text-lg">${p.name}</h3><p class="text-muted text-sm">${p.serviceType} - Apto ${p.apartment}</p></div></div></div><div class="p-6 space-y-5"><div class="grid grid-cols-2 gap-4 text-sm"><div><span class="text-muted block text-xs mb-1">Empresa</span><span class="text-fg">${p.company||'-'}</span></div><div><span class="text-muted block text-xs mb-1">Telefone</span><span class="text-fg">${p.phone?formatPhone(p.phone):'-'}</span></div><div><span class="text-muted block text-xs mb-1">Documento</span><span class="text-fg">${p.docType}: ${p.docNumber||'-'}</span></div><div><span class="text-muted block text-xs mb-1">Cadastrado</span><span class="text-fg">${fmtDate(p.createdAt)}</span></div></div><div><h4 class="form-label mb-3">Fotos (${(p.photos||[]).length})</h4>${(p.photos||[]).length===0?'<p class="text-muted text-sm">Nenhuma</p>':`<div class="photo-grid">${(p.photos||[]).map((ph,i)=>`<div class="photo-grid-item" style="cursor:pointer" onclick="window.open('${ph}','_blank')"><img src="${ph}"><div class="photo-label">${p.docType} ${i+1}</div></div>`).join('')}</div>`}</div></div><div class="p-6 border-t border-border flex items-center justify-end gap-3"><button class="btn-secondary" onclick="closeModal()">Fechar</button><button class="btn-primary" onclick="closeModal();openProviderForm('${p.id}')"><i class="fa-solid fa-pen"></i> Editar</button></div>`)}
+function openPvDetail(id){
+    const p=state.providers.find(x=>x.id===id);if(!p)return;
+    openModal(`<div class="p-6 border-b border-border"><div class="flex items-center gap-4"><div class="w-14 h-14 rounded-2xl bg-sky-500/10 flex items-center justify-center text-sky-400 text-lg font-bold font-heading">${p.name.split(' ').map(n=>n[0]).slice(0,2).join('')}</div><div class="flex-1"><h3 class="font-heading font-bold text-fg text-lg">${p.name}</h3><p class="text-muted text-sm">${p.serviceType} - Apto ${p.apartment}</p></div></div></div><div class="p-6 space-y-5"><div class="grid grid-cols-2 gap-4 text-sm"><div><span class="text-muted block text-xs mb-1">Empresa</span><span class="text-fg">${p.company||'-'}</span></div><div><span class="text-muted block text-xs mb-1">Telefone</span><span class="text-fg">${p.phone?formatPhone(p.phone):'-'}</span></div><div><span class="text-muted block text-xs mb-1">Documento</span><span class="text-fg">${p.docType}: ${p.docNumber||'-'}</span></div><div><span class="text-muted block text-xs mb-1">Cadastrado</span><span class="text-fg">${fmtDate(p.createdAt)}</span></div></div><div><h4 class="form-label mb-3">Fotos (${(p.photos||[]).length})</h4>${(p.photos||[]).length===0?'<p class="text-muted text-sm">Nenhuma</p>':`<div class="photo-grid">${(p.photos||[]).map((ph,i)=>`<div class="photo-grid-item" style="cursor:pointer" onclick="window.open('${ph}','_blank')"><img src="${ph}"><div class="photo-label">${p.docType} ${i+1}</div></div>`).join('')}</div>`}</div></div><div class="p-6 border-t border-border flex items-center justify-end gap-3"><button class="btn-secondary" onclick="closeModal()">Fechar</button><button class="btn-primary" onclick="closeModal();openProviderForm('${p.id}')"><i class="fa-solid fa-pen"></i> Editar</button></div>`);
+}
 
-function confirmDelPv(id){const p=state.providers.find(x=>x.id===id);if(!p)return;openModal(`<div class="p-6 text-center"><div class="w-16 h-16 rounded-full bg-danger/10 flex items-center justify-center mx-auto mb-4"><i class="fa-solid fa-triangle-exclamation text-danger text-2xl"></i></div><h3 class="font-heading font-bold text-fg text-lg mb-2">Excluir</h3><p class="text-fg-dim"><strong class="text-fg">${p.name}</strong>?</p></div><div class="p-6 border-t border-border flex items-center justify-center gap-3"><button class="btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn-danger" style="padding:10px 22px" onclick="doDelPv('${id}')"><i class="fa-solid fa-trash"></i> Excluir</button></div>`)}
+function confirmDelPv(id){
+    const p=state.providers.find(x=>x.id===id);if(!p)return;
+    openModal(`<div class="p-6 text-center"><div class="w-16 h-16 rounded-full bg-danger/10 flex items-center justify-center mx-auto mb-4"><i class="fa-solid fa-triangle-exclamation text-danger text-2xl"></i></div><h3 class="font-heading font-bold text-fg text-lg mb-2">Excluir</h3><p class="text-fg-dim"><strong class="text-fg">${p.name}</strong>?</p></div><div class="p-6 border-t border-border flex items-center justify-center gap-3"><button class="btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn-danger" style="padding:10px 22px" onclick="doDelPv('${id}')"><i class="fa-solid fa-trash"></i> Excluir</button></div>`);
+}
 async function doDelPv(id){await DB.deletePv(id);closeModal();showToast('Excluido','success');renderProviders()}
 
-function renderPackages(){let f=[...state.packages].sort((a,b)=>new Date(b.receivedAt)-new Date(a.receivedAt));if(packageFilter==='pending')f=f.filter(p=>p.status==='pending');if(packageFilter==='delivered')f=f.filter(p=>p.status==='delivered');const pc=state.packages.filter(p=>p.status==='pending').length,dc=state.packages.filter(p=>p.status==='delivered').length;document.getElementById('section-encomendas').innerHTML=`<div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6"><div class="flex items-center gap-2 flex-wrap"><button class="btn-secondary text-sm ${packageFilter==='all'?'!bg-accent/10 !text-accent !border-accent/30':''}" onclick="packageFilter='all';renderPackages()">Todas (${state.packages.length})</button><button class="btn-secondary text-sm ${packageFilter==='pending'?'!bg-yellow-500/10 !text-warning !border-yellow-500/30':''}" onclick="packageFilter='pending';renderPackages()">Pendentes (${pc})</button><button class="btn-secondary text-sm ${packageFilter==='delivered'?'!bg-green-500/10 !text-success !border-green-500/30':''}" onclick="packageFilter='delivered';renderPackages()">Entregues (${dc})</button></div><div class="flex items-center gap-2"><button class="btn-scan text-sm" onclick="openScannerForRegister()"><i class="fa-solid fa-qrcode"></i> Escanear</button><button class="btn-primary text-sm" onclick="openNewPackageModal()"><i class="fa-solid fa-plus"></i> Nova</button></div></div>${f.length===0?'<div class="data-card p-12 text-center"><i class="fa-solid fa-box-open text-4xl text-muted mb-4"></i><p class="text-fg font-heading font-bold text-lg">Nenhuma encomenda</p></div>':`<div class="data-card"><div class="table-container"><table class="data-table"><thead><tr><th>Codigo</th><th>Morador</th><th>Apto</th><th>Rastreio</th><th>Descricao</th><th>Foto</th><th>Status</th><th class="text-right">Acoes</th></tr></thead><tbody>${f.map(p=>`<tr><td><span class="font-heading font-bold text-accent">${p.code}</span></td><td class="text-fg font-medium">${p.residentName}</td><td class="text-fg-dim">${p.apartment}</td><td>${p.trackingCode?`<span class="text-fg-dim text-xs font-mono">${p.trackingCode}</span>`:'-'}</td><td class="text-fg-dim max-w-[120px] truncate">${p.description}</td><td>${p.photoUrl?`<img src="${p.photoUrl}" class="w-8 h-8 rounded object-cover cursor-pointer" onclick="window.open('${p.photoUrl}','_blank')">`:'-'}</td><td>${p.status==='pending'?'<span class="badge badge-pending"><i class="fa-solid fa-clock text-[10px]"></i> Pendente</span>':'<span class="badge badge-delivered"><i class="fa-solid fa-check text-[10px]"></i> Entregue</span>'}</td><td><div class="flex items-center justify-end gap-1">${p.status==='pending'?`<button class="btn-icon" title="Notificar" onclick="resendN('${p.id}')"><i class="fa-brands fa-whatsapp text-[#25d366]"></i></button><button class="btn-icon" title="Entregar" onclick="openDeliver('${p.id}')"><i class="fa-solid fa-check text-success"></i></button>`:`<div class="text-right"><span class="text-muted text-xs block">${p.deliveredAt?fmtDate(p.deliveredAt):''}</span>${p.deliveredTo?`<span class="text-fg-dim text-xs"><i class="fa-solid fa-user text-[10px]"></i> ${p.deliveredTo}</span>`:''}</div>`}</div></td></tr>`).join('')}</tbody></table></div></div>`}`}
+/* ============================================
+   ENCOMENDAS
+   ============================================ */
+function renderPackages(){
+    let f=[...state.packages].sort((a,b)=>new Date(b.receivedAt)-new Date(a.receivedAt));
+    if(packageFilter==='pending')f=f.filter(p=>p.status==='pending');
+    if(packageFilter==='delivered')f=f.filter(p=>p.status==='delivered');
+    const pc=state.packages.filter(p=>p.status==='pending').length;
+    const dc=state.packages.filter(p=>p.status==='delivered').length;
+    document.getElementById('section-encomendas').innerHTML=`
+    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+        <div class="flex items-center gap-2 flex-wrap">
+            <button class="btn-secondary text-sm ${packageFilter==='all'?'!bg-accent/10 !text-accent !border-accent/30':''}" onclick="packageFilter='all';renderPackages()">Todas (${state.packages.length})</button>
+            <button class="btn-secondary text-sm ${packageFilter==='pending'?'!bg-yellow-500/10 !text-warning !border-yellow-500/30':''}" onclick="packageFilter='pending';renderPackages()">Pendentes (${pc})</button>
+            <button class="btn-secondary text-sm ${packageFilter==='delivered'?'!bg-green-500/10 !text-success !border-green-500/30':''}" onclick="packageFilter='delivered';renderPackages()">Entregues (${dc})</button>
+        </div>
+        <div class="flex items-center gap-2">
+            <button class="btn-scan text-sm" onclick="openScannerForRegister()"><i class="fa-solid fa-qrcode"></i> Escanear</button>
+            <button class="btn-primary text-sm" onclick="openNewPackageModal()"><i class="fa-solid fa-plus"></i> Nova</button>
+        </div>
+    </div>
+    ${f.length===0?'<div class="data-card p-12 text-center"><i class="fa-solid fa-box-open text-4xl text-muted mb-4"></i><p class="text-fg font-heading font-bold text-lg">Nenhuma encomenda</p></div>':`
+    <div class="data-card"><div class="table-container"><table class="data-table"><thead><tr><th>Codigo</th><th>Morador</th><th>Apto</th><th>Rastreio</th><th>Descricao</th><th>Foto</th><th>Status</th><th class="text-right">Acoes</th></tr></thead><tbody>${f.map(p=>`<tr><td><span class="font-heading font-bold text-accent">${p.code}</span></td><td class="text-fg font-medium">${p.residentName}</td><td class="text-fg-dim">${p.apartment}</td><td>${p.trackingCode?`<span class="text-fg-dim text-xs font-mono">${p.trackingCode}</span>`:'-'}</td><td class="text-fg-dim max-w-[120px] truncate">${p.description}</td><td>${p.photoUrl?`<img src="${p.photoUrl}" class="w-8 h-8 rounded object-cover cursor-pointer" onclick="window.open('${p.photoUrl}','_blank')">`:'-'}</td><td>${p.status==='pending'?'<span class="badge badge-pending"><i class="fa-solid fa-clock text-[10px]"></i> Pendente</span>':'<span class="badge badge-delivered"><i class="fa-solid fa-check text-[10px]"></i> Entregue</span>'}</td><td><div class="flex items-center justify-end gap-1">${p.status==='pending'?`<button class="btn-icon" title="Notificar" onclick="resendN('${p.id}')"><i class="fa-brands fa-whatsapp text-[#25d366]"></i></button><button class="btn-icon" title="Entregar" onclick="openDeliver('${p.id}')"><i class="fa-solid fa-check text-success"></i></button>`:`<div class="text-right"><span class="text-muted text-xs block">${p.deliveredAt?fmtDate(p.deliveredAt):''}</span>${p.deliveredTo?`<span class="text-fg-dim text-xs"><i class="fa-solid fa-user text-[10px]"></i> ${p.deliveredTo}</span>`:''}</div>`}</div></td></tr>`).join('')}</tbody></table></div></div>`}`;
+}
 
-function openNewPackageModal(scannedCode=''){if(!state.residents.length){showToast('Cadastre um morador primeiro','warning');return}tempPackagePhoto=null;const opts=state.residents.map(r=>`<option value="${r.id}">${r.name} - Apto ${r.apartment}</option>`).join('');openModal(`<div class="p-6 border-b border-border"><h3 class="font-heading font-bold text-fg text-lg">Registrar Encomenda</h3></div><div class="p-6 space-y-4"><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div class="sm:col-span-2"><label class="form-label">Rastreio</label><div class="flex gap-2"><input type="text" class="form-input flex-1" id="pkgTc" placeholder="NL123456789BR" value="${scannedCode}"><button class="btn-scan" onclick="scanTc()"><i class="fa-solid fa-qrcode"></i></button></div>${scannedCode?'<p class="text-accent text-xs mt-1"><i class="fa-solid fa-circle-check"></i> Escaneado</p>':''}</div><div><label class="form-label">Morador</label><select class="form-input form-select" id="pkgRid"><option value="">Selecione...</option>${opts}</select></div><div><label class="form-label">Descricao</label><input type="text" class="form-input" id="pkgDesc" placeholder="Caixa grande - Mercado Livre"></div></div><div><label class="form-label">Foto da Encomenda</label><div class="photo-upload" id="pkgPhArea" onclick="document.getElementById('pkgPhFile').click()"><input type="file" id="pkgPhFile" accept="image/*" capture="environment" style="display:none" onchange="handlePkgPh(this.files[0])"><div id="pkgPhPl"><i class="fa-solid fa-camera text-3xl text-muted mb-3"></i><p class="text-fg-dim text-sm">Toque para bater foto</p></div><div id="pkgPhPr" style="display:none"><img id="pkgPhImg" class="w-full max-h-48 object-contain rounded-lg"></div></div></div></div><div class="p-6 border-t border-border flex items-center justify-end gap-3"><button class="btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn-primary" onclick="registerPkg()"><i class="fa-solid fa-box"></i> Registrar e Notificar</button></div>`)}
+function openNewPackageModal(scannedCode=''){
+    if(!state.residents.length){showToast('Cadastre um morador primeiro','warning');return}
+    tempPackagePhoto=null;
+    const opts=state.residents.map(r=>`<option value="${r.id}">${r.name} - Apto ${r.apartment}</option>`).join('');
+    openModal(`<div class="p-6 border-b border-border"><h3 class="font-heading font-bold text-fg text-lg">Registrar Encomenda</h3></div><div class="p-6 space-y-4"><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div class="sm:col-span-2"><label class="form-label">Rastreio</label><div class="flex gap-2"><input type="text" class="form-input flex-1" id="pkgTc" placeholder="NL123456789BR" value="${scannedCode}"><button class="btn-scan" onclick="scanTc()"><i class="fa-solid fa-qrcode"></i></button></div>${scannedCode?'<p class="text-accent text-xs mt-1"><i class="fa-solid fa-circle-check"></i> Escaneado</p>':''}</div><div><label class="form-label">Morador</label><select class="form-input form-select" id="pkgRid"><option value="">Selecione...</option>${opts}</select></div><div><label class="form-label">Descricao</label><input type="text" class="form-input" id="pkgDesc" placeholder="Caixa grande - Mercado Livre"></div></div><div><label class="form-label">Foto da Encomenda</label><div class="photo-upload" id="pkgPhArea" onclick="document.getElementById('pkgPhFile').click()"><input type="file" id="pkgPhFile" accept="image/*" capture="environment" style="display:none" onchange="handlePkgPh(this.files[0])"><div id="pkgPhPl"><i class="fa-solid fa-camera text-3xl text-muted mb-3"></i><p class="text-fg-dim text-sm">Toque para bater foto</p></div><div id="pkgPhPr" style="display:none"><img id="pkgPhImg" class="w-full max-h-48 object-contain rounded-lg"></div></div></div></div><div class="p-6 border-t border-border flex items-center justify-end gap-3"><button class="btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn-primary" onclick="registerPkg()"><i class="fa-solid fa-box"></i> Registrar e Notificar</button></div>`);
+}
 
-function scanTc(){scannerCallback=(code)=>{const i=document.getElementById('pkgTc');if(i)i.value=code;showToast('Codigo preenchido','success')};document.getElementById('scannerTitle').textContent='Escanear Rastreio';document.getElementById('scannerSubtitle').textContent='Codigo da encomenda';document.getElementById('scanOverlay').style.display='';document.getElementById('scannerModal').classList.add('active');const el=document.getElementById('qr-reader');el.innerHTML='';setTimeout(()=>{try{qrScanner=new Html5Qrcode('qr-reader');qrScanner.start({facingMode:'environment'},{fps:10,qrbox:{width:260,height:160},aspectRatio:1.3},onScanSuccess,()=>{}).catch(()=>{showToast('Erro na camera','error');stopScanner()})}catch(e){stopScanner()}},300)}
+function scanTc(){
+    scannerCallback=(code)=>{
+        const i=document.getElementById('pkgTc');
+        if(i)i.value=code;
+        showToast('Codigo preenchido','success');
+    };
+    document.getElementById('scannerTitle').textContent='Escanear Rastreio';
+    document.getElementById('scannerSubtitle').textContent='Codigo da encomenda';
+    document.getElementById('scanOverlay').style.display='';
+    document.getElementById('scannerModal').classList.add('active');
+    const el=document.getElementById('qr-reader');el.innerHTML='';
+    setTimeout(()=>{
+        try{
+            qrScanner=new Html5Qrcode('qr-reader');
+            qrScanner.start({facingMode:'environment'},{fps:10,qrbox:{width:260,height:160},aspectRatio:1.3},onScanSuccess,()=>{}).catch(()=>{showToast('Erro na camera','error');stopScanner()});
+        }catch(e){stopScanner()}
+    },300);
+}
 
-async function handlePkgPh(file){if(!file)return;try{const url=await DB.uploadPhoto(file,'encomendas','pkg');tempPackagePhoto=url;document.getElementById('pkgPhPl').style.display='none';document.getElementById('pkgPhPr').style.display='block';document.getElementById('pkgPhImg').src=url;document.getElementById('pkgPhArea').classList.add('has-photo');showToast('Foto salva','success')}catch(e){showToast('Erro na foto','error')}}
+async function handlePkgPh(file){
+    if(!file)return;
+    try{
+        const url=await uploadPhotoToImgBB(file,'pkg');
+        tempPackagePhoto=url;
+        document.getElementById('pkgPhPl').style.display='none';
+        document.getElementById('pkgPhPr').style.display='block';
+        document.getElementById('pkgPhImg').src=url;
+        document.getElementById('pkgPhArea').classList.add('has-photo');
+        showToast('Foto salva','success');
+    }catch(e){showToast('Erro na foto','error')}
+}
 
-async function registerPkg(){const rid=document.getElementById('pkgRid').value,desc=document.getElementById('pkgDesc').value.trim(),tc=document.getElementById('pkgTc')?.value.trim()||'';if(!rid){showToast('Selecione o morador','error');return}if(!desc){showToast('Descreva a encomenda','error');return}const r=getR(rid);if(!r)return;const code=genCode(),now=new Date().toISOString();const np={id:genId(),code,residentId:r.id,residentName:r.name,apartment:r.apartment,description:desc,trackingCode:tc,receivedAt:now,status:'pending',deliveredAt:null,deliveredTo:null,photoUrl:tempPackagePhoto};state.packages.push(np);await DB.savePkg(np);const ti=tc?`\n* Rastreio: ${tc}`:'';const msg=`*PORTARIA*\n\nOla, ${r.name.split(' ')[0]}! 👋\n\n📦 Uma encomenda chegou:\n\n• Descricao: ${desc}${ti}\n• Apartamento: ${r.apartment}\n\n🔐 *Codigo de retirada: ${code}*\n\nApresente na portaria para retirar.\n\nRecebida em: ${fmtDate(now)}`;const wa=waUrl(r.whatsapp,msg);document.getElementById('modalContent').innerHTML=`<div class="p-8 text-center"><div class="w-16 h-16 rounded-full bg-green-500/10 flex items-center justify-center mx-auto mb-5"><i class="fa-solid fa-circle-check text-success text-3xl"></i></div><h3 class="font-heading font-bold text-fg text-xl mb-2">Registrada</h3><p class="text-fg-dim mb-4"><strong class="text-fg">${r.name}</strong> - Apto ${r.apartment}</p>${tempPackagePhoto?`<img src="${tempPackagePhoto}" class="w-28 h-28 object-cover rounded-xl mx-auto mb-4 border border-border">`:''}<div class="code-display code-pulse mb-4">${code}</div><p class="text-muted text-sm mb-6">Codigo de retirada</p><div class="flex flex-col gap-3 max-w-xs mx-auto"><a href="${wa}" target="_blank" class="btn-whatsapp w-full justify-center"><i class="fa-brands fa-whatsapp text-lg"></i> Enviar WhatsApp</a><button class="btn-secondary w-full justify-center" onclick="navigator.clipboard.writeText('${code}').then(()=>showToast('Copiado','success'))"><i class="fa-solid fa-copy"></i> Copiar</button></div></div><div class="p-6 border-t border-border flex items-center justify-center"><button class="btn-secondary" onclick="closeModal();renderPackages()">Fechar</button></div>`;tempPackagePhoto=null}
+async function registerPkg(){
+    const rid=document.getElementById('pkgRid').value;
+    const desc=document.getElementById('pkgDesc').value.trim();
+    const tc=document.getElementById('pkgTc')?.value.trim()||'';
+    if(!rid){showToast('Selecione o morador','error');return}
+    if(!desc){showToast('Descreva a encomenda','error');return}
+    const r=getR(rid);if(!r)return;
+    const code=genCode(), now=new Date().toISOString();
+    const np={id:genId(),code,residentId:r.id,residentName:r.name,apartment:r.apartment,description:desc,trackingCode:tc,receivedAt:now,status:'pending',deliveredAt:null,deliveredTo:null,photoUrl:tempPackagePhoto};
+    state.packages.push(np);
+    await DB.savePkg(np);
+    const ti=tc?`\n* Rastreio: ${tc}`:'';
+    const msg=`*PORTARIA*\n\nOla, ${r.name.split(' ')[0]}! 👋\n\n📦 Uma encomenda chegou:\n\n• Descricao: ${desc}${ti}\n• Apartamento: ${r.apartment}\n\n🔐 *Codigo de retirada: ${code}*\n\nApresente na portaria para retirar.\n\nRecebida em: ${fmtDate(now)}`;
+    const wa=waUrl(r.whatsapp,msg);
+    document.getElementById('modalContent').innerHTML=`<div class="p-8 text-center"><div class="w-16 h-16 rounded-full bg-green-500/10 flex items-center justify-center mx-auto mb-5"><i class="fa-solid fa-circle-check text-success text-3xl"></i></div><h3 class="font-heading font-bold text-fg text-xl mb-2">Registrada</h3><p class="text-fg-dim mb-4"><strong class="text-fg">${r.name}</strong> - Apto ${r.apartment}</p>${tempPackagePhoto?`<img src="${tempPackagePhoto}" class="w-28 h-28 object-cover rounded-xl mx-auto mb-4 border border-border">`:''}<div class="code-display code-pulse mb-4">${code}</div><p class="text-muted text-sm mb-6">Codigo de retirada</p><div class="flex flex-col gap-3 max-w-xs mx-auto"><a href="${wa}" target="_blank" class="btn-whatsapp w-full justify-center"><i class="fa-brands fa-whatsapp text-lg"></i> Enviar WhatsApp</a><button class="btn-secondary w-full justify-center" onclick="navigator.clipboard.writeText('${code}').then(()=>showToast('Copiado','success'))"><i class="fa-solid fa-copy"></i> Copiar</button></div></div><div class="p-6 border-t border-border flex items-center justify-center"><button class="btn-secondary" onclick="closeModal();renderPackages()">Fechar</button></div>`;
+    tempPackagePhoto=null;
+}
 
-function resendN(id){const p=state.packages.find(x=>x.id===id);if(!p)return;const r=getR(p.residentId);if(!r)return;window.open(waUrl(r.whatsapp,`*PORTARIA*\n\nLembrete: encomenda aguardando:\n\n• ${p.description}\n• Apto ${p.apartment}\n\n🔐 Codigo: ${p.code}`),'_blank');showToast('WhatsApp aberto','success')}
+function resendN(id){
+    const p=state.packages.find(x=>x.id===id);if(!p)return;
+    const r=getR(p.residentId);if(!r)return;
+    window.open(waUrl(r.whatsapp,`*PORTARIA*\n\nLembrete: encomenda aguardando:\n\n• ${p.description}\n• Apto ${p.apartment}\n\n🔐 Codigo: ${p.code}`),'_blank');
+    showToast('WhatsApp aberto','success');
+}
 
-function openDeliver(pkgId){const p=state.packages.find(x=>x.id===pkgId);if(!p)return;openModal(`<div class="p-6 border-b border-border"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-xl bg-green-500/10 flex items-center justify-center"><i class="fa-solid fa-box-open text-success"></i></div><h3 class="font-heading font-bold text-fg text-lg">Confirmar Entrega</h3></div></div><div class="p-6 space-y-4">${p.photoUrl?`<div class="flex justify-center"><img src="${p.photoUrl}" class="w-20 h-20 object-cover rounded-xl border border-border"></div>`:''}<div class="delivered-info"><div class="di-row"><span class="di-label">Codigo</span><span class="di-value font-heading font-bold text-accent">${p.code}</span></div><div class="di-row"><span class="di-label">Morador</span><span class="di-value">${p.residentName}</span></div><div class="di-row"><span class="di-label">Apto</span><span class="di-value">${p.apartment}</span></div><div class="di-row"><span class="di-label">Descricao</span><span class="di-value">${p.description}</span></div></div><div><label class="form-label">Quem esta recebendo?</label><input type="text" class="form-input" id="delTo" placeholder="Ex: Maria, o morador..."></div></div><div class="p-6 border-t border-border flex items-center justify-end gap-3"><button class="btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn-primary" onclick="execDeliver('${p.id}')"><i class="fa-solid fa-check-double"></i> Confirmar e Avisar</button></div>`);
-setTimeout(()=>{const i=document.getElementById('delTo');if(i)i.focus()},150)}
+function openDeliver(pkgId){
+    const p=state.packages.find(x=>x.id===pkgId);if(!p)return;
+    openModal(`<div class="p-6 border-b border-border"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-xl bg-green-500/10 flex items-center justify-center"><i class="fa-solid fa-box-open text-success"></i></div><h3 class="font-heading font-bold text-fg text-lg">Confirmar Entrega</h3></div></div><div class="p-6 space-y-4">${p.photoUrl?`<div class="flex justify-center"><img src="${p.photoUrl}" class="w-20 h-20 object-cover rounded-xl border border-border"></div>`:''}<div class="delivered-info"><div class="di-row"><span class="di-label">Codigo</span><span class="di-value font-heading font-bold text-accent">${p.code}</span></div><div class="di-row"><span class="di-label">Morador</span><span class="di-value">${p.residentName}</span></div><div class="di-row"><span class="di-label">Apto</span><span class="di-value">${p.apartment}</span></div><div class="di-row"><span class="di-label">Descricao</span><span class="di-value">${p.description}</span></div></div><div><label class="form-label">Quem esta recebendo?</label><input type="text" class="form-input" id="delTo" placeholder="Ex: Maria, o morador..."></div></div><div class="p-6 border-t border-border flex items-center justify-end gap-3"><button class="btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn-primary" onclick="execDeliver('${p.id}')"><i class="fa-solid fa-check-double"></i> Confirmar e Avisar</button></div>`);
+    setTimeout(()=>{const i=document.getElementById('delTo');if(i)i.focus()},150);
+}
 
-async function execDeliver(pkgId){const dt=document.getElementById('delTo')?.value.trim();if(!dt){showToast('Informe quem recebeu','error');return}const p=state.packages.find(x=>x.id===pkgId);if(!p)return;const now=new Date().toISOString();p.status='delivered';p.deliveredAt=now;p.deliveredTo=dt;await DB.savePkg(p);const r=getR(p.residentId);if(r){const msg=`*PORTARIA*\n\n✅ Encomenda entregue!\n\n• Codigo: ${p.code}\n• Descricao: ${p.description}\n• Apto: ${p.apartment}\n\n👤 Recebida por: *${dt}*\n\n🕐 ${fmtDate(now)}\n\nCaso nao tenha sido voce, contate a portaria.`;const wa=waUrl(r.whatsapp,msg);closeModal();openModal(`<div class="p-8 text-center"><div class="w-16 h-16 rounded-full bg-green-500/10 flex items-center justify-center mx-auto mb-5"><i class="fa-solid fa-circle-check text-success text-3xl"></i></div><h3 class="font-heading font-bold text-fg text-xl mb-2">Entregue</h3><p class="text-fg-dim mb-1"><strong class="text-accent">${p.code}</strong></p><p class="text-muted text-sm mb-4">Recebida por <strong class="text-fg">${dt}</strong></p><div class="delivered-info text-left mb-6"><div class="di-row"><span class="di-label">Morador</span><span class="di-value">${p.residentName}</span></div><div class="di-row"><span class="di-label">Recebida por</span><span class="di-value text-accent">${dt}</span></div><div class="di-row"><span class="di-label">Data/Hora</span><span class="di-value">${fmtDate(now)}</span></div></div><a href="${wa}" target="_blank" class="btn-whatsapp w-full justify-center mb-3"><i class="fa-brands fa-whatsapp text-lg"></i> Enviar Confirmacao</a><button class="btn-secondary w-full justify-center" onclick="closeModal();renderPackages()">Fechar</button></div>`)}else{closeModal();showToast('Entregue','success');renderPackages()}}
+async function execDeliver(pkgId){
+    const dt=document.getElementById('delTo')?.value.trim();
+    if(!dt){showToast('Informe quem recebeu','error');return}
+    const p=state.packages.find(x=>x.id===pkgId);if(!p)return;
+    const now=new Date().toISOString();
+    p.status='delivered';p.deliveredAt=now;p.deliveredTo=dt;
+    await DB.savePkg(p);
+    const r=getR(p.residentId);
+    if(r){
+        const msg=`*PORTARIA*\n\n✅ Encomenda entregue!\n\n• Codigo: ${p.code}\n• Descricao: ${p.description}\n• Apto: ${p.apartment}\n\n👤 Recebida por: *${dt}*\n\n🕐 ${fmtDate(now)}\n\nCaso nao tenha sido voce, contate a portaria.`;
+        const wa=waUrl(r.whatsapp,msg);
+        closeModal();
+        openModal(`<div class="p-8 text-center"><div class="w-16 h-16 rounded-full bg-green-500/10 flex items-center justify-center mx-auto mb-5"><i class="fa-solid fa-circle-check text-success text-3xl"></i></div><h3 class="font-heading font-bold text-fg text-xl mb-2">Entregue</h3><p class="text-fg-dim mb-1"><strong class="text-accent">${p.code}</strong></p><p class="text-muted text-sm mb-4">Recebida por <strong class="text-fg">${dt}</strong></p><div class="delivered-info text-left mb-6"><div class="di-row"><span class="di-label">Morador</span><span class="di-value">${p.residentName}</span></div><div class="di-row"><span class="di-label">Recebida por</span><span class="di-value text-accent">${dt}</span></div><div class="di-row"><span class="di-label">Data/Hora</span><span class="di-value">${fmtDate(now)}</span></div></div><a href="${wa}" target="_blank" class="btn-whatsapp w-full justify-center mb-3"><i class="fa-brands fa-whatsapp text-lg"></i> Enviar Confirmacao</a><button class="btn-secondary w-full justify-center" onclick="closeModal();renderPackages()">Fechar</button></div>`);
+    }else{closeModal();showToast('Entregue','success');renderPackages()}
+}
 
-function renderPickup(){const pc=state.packages.filter(p=>p.status==='pending').length;document.getElementById('section-retirada').innerHTML=`<div class="max-w-lg mx-auto"><div class="data-card p-8 mb-6"><div class="text-center mb-8"><div class="w-20 h-20 rounded-2xl bg-accent-glow border border-accent/20 flex items-center justify-center mx-auto mb-5"><i class="fa-solid fa-barcode text-accent text-3xl"></i></div><h3 class="font-heading font-bold text-fg text-2xl mb-2">Retirada</h3><p class="text-muted">Codigo ou escaneie</p></div><button class="btn-scan w-full justify-center text-base py-3 mb-5" onclick="openScannerForPickup()"><i class="fa-solid fa-camera"></i> Escanear QR / Codigo de Barras</button><div class="flex items-center gap-4 mb-5"><div class="flex-1 h-px bg-border"></div><span class="text-muted text-xs uppercase">ou digite</span><div class="flex-1 h-px bg-border"></div></div><div class="mb-4"><label class="form-label text-center block">Codigo de Retirada</label><input type="text" class="form-input text-center font-heading font-bold text-xl tracking-[6px] uppercase" id="pickupCodeInput" placeholder="K7N3W9" maxlength="6" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'')" onkeydown="if(event.key==='Enter')verifyPickupCode()"></div><button class="btn-primary w-full justify-center text-base py-3" onclick="verifyPickupCode()"><i class="fa-solid fa-magnifying-glass"></i> Verificar</button><div id="pickupResult" class="mt-6"></div></div><div class="data-card p-6"><div class="flex items-center gap-3 mb-4"><div class="w-10 h-10 rounded-lg bg-yellow-500/10 flex items-center justify-center"><i class="fa-solid fa-box-open text-warning"></i></div><p class="text-fg font-medium">${pc} pendente(s)</p></div><div class="flex flex-col gap-2 max-h-48 overflow-y-auto">${state.packages.filter(p=>p.status==='pending').map(p=>`<div class="flex items-center justify-between py-2 px-3 rounded-lg bg-bg/50"><div class="flex items-center gap-3">${p.photoUrl?`<img src="${p.photoUrl}" class="w-7 h-7 rounded object-cover">`:''}<span class="font-heading font-bold text-accent text-sm">${p.code}</span><span class="text-fg-dim text-sm">${p.residentName}</span></div><span class="text-muted text-xs">Apto ${p.apartment}</span></div>`).join('')||'<p class="text-muted text-sm text-center py-2">Nenhuma</p>'}</div></div></div>`}
+/* ============================================
+   RETIRADA
+   ============================================ */
+function renderPickup(){
+    const pc=state.packages.filter(p=>p.status==='pending').length;
+    document.getElementById('section-retirada').innerHTML=`
+    <div class="max-w-lg mx-auto">
+        <div class="data-card p-8 mb-6">
+            <div class="text-center mb-8"><div class="w-20 h-20 rounded-2xl bg-accent-glow border border-accent/20 flex items-center justify-center mx-auto mb-5"><i class="fa-solid fa-barcode text-accent text-3xl"></i></div><h3 class="font-heading font-bold text-fg text-2xl mb-2">Retirada</h3><p class="text-muted">Codigo ou escaneie</p></div>
+            <button class="btn-scan w-full justify-center text-base py-3 mb-5" onclick="openScannerForPickup()"><i class="fa-solid fa-camera"></i> Escanear QR / Codigo de Barras</button>
+            <div class="flex items-center gap-4 mb-5"><div class="flex-1 h-px bg-border"></div><span class="text-muted text-xs uppercase">ou digite</span><div class="flex-1 h-px bg-border"></div></div>
+            <div class="mb-4"><label class="form-label text-center block">Codigo de Retirada</label><input type="text" class="form-input text-center font-heading font-bold text-xl tracking-[6px] uppercase" id="pickupCodeInput" placeholder="K7N3W9" maxlength="6" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'')" onkeydown="if(event.key==='Enter')verifyPickupCode()"></div>
+            <button class="btn-primary w-full justify-center text-base py-3" onclick="verifyPickupCode()"><i class="fa-solid fa-magnifying-glass"></i> Verificar</button>
+            <div id="pickupResult" class="mt-6"></div>
+        </div>
+        <div class="data-card p-6"><div class="flex items-center gap-3 mb-4"><div class="w-10 h-10 rounded-lg bg-yellow-500/10 flex items-center justify-center"><i class="fa-solid fa-box-open text-warning"></i></div><p class="text-fg font-medium">${pc} pendente(s)</p></div><div class="flex flex-col gap-2 max-h-48 overflow-y-auto">${state.packages.filter(p=>p.status==='pending').map(p=>`<div class="flex items-center justify-between py-2 px-3 rounded-lg bg-bg/50"><div class="flex items-center gap-3">${p.photoUrl?`<img src="${p.photoUrl}" class="w-7 h-7 rounded object-cover">`:''}<span class="font-heading font-bold text-accent text-sm">${p.code}</span><span class="text-fg-dim text-sm">${p.residentName}</span></div><span class="text-muted text-xs">Apto ${p.apartment}</span></div>`).join('')||'<p class="text-muted text-sm text-center py-2">Nenhuma</p>'}</div></div>
+    </div>`;
+}
 
-function verifyPickupCode(){const code=document.getElementById('pickupCodeInput').value.trim().toUpperCase(),rd=document.getElementById('pickupResult');if(!code){showToast('Digite o codigo','warning');return}const pkg=state.packages.find(p=>p.code===code&&p.status==='pending');if(!pkg){const ap=state.packages.find(p=>p.code===code);if(ap&&ap.status==='delivered'){rd.innerHTML=`<div class="p-5 rounded-xl bg-green-500/5 border border-green-500/20 text-center"><i class="fa-solid fa-circle-check text-success text-2xl mb-2"></i><p class="text-success font-heading font-bold">Ja Retirada</p><p class="text-muted text-sm mt-1">${fmtDate(ap.deliveredAt)}</p>${ap.deliveredTo?`<p class="text-fg-dim text-sm">Recebida por: ${ap.deliveredTo}</p>`:''}</div>`}else{rd.innerHTML=`<div class="p-5 rounded-xl bg-danger/5 border border-danger/20 text-center"><i class="fa-solid fa-circle-xmark text-danger text-2xl mb-2"></i><p class="text-danger font-heading font-bold">Nao Encontrado</p></div>`}return}
-rd.innerHTML=`<div class="p-5 rounded-xl bg-accent/5 border border-accent/20"><div class="flex items-start gap-4 mb-4"><div class="w-12 h-12 rounded-xl bg-accent-glow flex items-center justify-center shrink-0"><i class="fa-solid fa-box text-accent text-lg"></i></div><div class="flex-1"><p class="text-fg font-heading font-bold text-lg mb-1">Encontrada</p><div class="code-display text-xl py-3">${pkg.code}</div></div></div>${pkg.photoUrl?`<div class="flex justify-center mb-4"><img src="${pkg.photoUrl}" class="w-20 h-20 object-cover rounded-xl border border-border"></div>`:''}<div class="space-y-2 mb-4 text-sm"><div class="flex justify-between py-2 border-b border-border"><span class="text-muted">Morador</span><span class="text-fg">${pkg.residentName}</span></div><div class="flex justify-between py-2 border-b border-border"><span class="text-muted">Apto</span><span class="text-fg">${pkg.apartment}</span></div><div class="flex justify-between py-2"><span class="text-muted">Descricao</span><span class="text-fg">${pkg.description}</span></div></div><div class="mb-4"><label class="form-label">Quem esta retirando?</label><input type="text" class="form-input" id="pickupRcv" placeholder="Nome..."></div><button class="btn-primary w-full justify-center py-3 text-base" onclick="execPickup('${pkg.id}')"><i class="fa-solid fa-check-double"></i> Liberar e Avisar</button></div>`;
-setTimeout(()=>{const i=document.getElementById('pickupRcv');if(i)i.focus()},100)}
+function verifyPickupCode(){
+    const code=document.getElementById('pickupCodeInput').value.trim().toUpperCase();
+    const rd=document.getElementById('pickupResult');
+    if(!code){showToast('Digite o codigo','warning');return}
+    const pkg=state.packages.find(p=>p.code===code&&p.status==='pending');
+    if(!pkg){
+        const ap=state.packages.find(p=>p.code===code);
+        if(ap&&ap.status==='delivered'){
+            rd.innerHTML=`<div class="p-5 rounded-xl bg-green-500/5 border border-green-500/20 text-center"><i class="fa-solid fa-circle-check text-success text-2xl mb-2"></i><p class="text-success font-heading font-bold">Ja Retirada</p><p class="text-muted text-sm mt-1">${fmtDate(ap.deliveredAt)}</p>${ap.deliveredTo?`<p class="text-fg-dim text-sm">Recebida por: ${ap.deliveredTo}</p>`:''}</div>`;
+        }else{
+            rd.innerHTML=`<div class="p-5 rounded-xl bg-danger/5 border border-danger/20 text-center"><i class="fa-solid fa-circle-xmark text-danger text-2xl mb-2"></i><p class="text-danger font-heading font-bold">Nao Encontrado</p></div>`;
+        }
+        return;
+    }
+    rd.innerHTML=`<div class="p-5 rounded-xl bg-accent/5 border border-accent/20"><div class="flex items-start gap-4 mb-4"><div class="w-12 h-12 rounded-xl bg-accent-glow flex items-center justify-center shrink-0"><i class="fa-solid fa-box text-accent text-lg"></i></div><div class="flex-1"><p class="text-fg font-heading font-bold text-lg mb-1">Encontrada</p><div class="code-display text-xl py-3">${pkg.code}</div></div></div>${pkg.photoUrl?`<div class="flex justify-center mb-4"><img src="${pkg.photoUrl}" class="w-20 h-20 object-cover rounded-xl border border-border"></div>`:''}<div class="space-y-2 mb-4 text-sm"><div class="flex justify-between py-2 border-b border-border"><span class="text-muted">Morador</span><span class="text-fg">${pkg.residentName}</span></div><div class="flex justify-between py-2 border-b border-border"><span class="text-muted">Apto</span><span class="text-fg">${pkg.apartment}</span></div><div class="flex justify-between py-2"><span class="text-muted">Descricao</span><span class="text-fg">${pkg.description}</span></div></div><div class="mb-4"><label class="form-label">Quem esta retirando?</label><input type="text" class="form-input" id="pickupRcv" placeholder="Nome..."></div><button class="btn-primary w-full justify-center py-3 text-base" onclick="execPickup('${pkg.id}')"><i class="fa-solid fa-check-double"></i> Liberar e Avisar</button></div>`;
+    setTimeout(()=>{const i=document.getElementById('pickupRcv');if(i)i.focus()},100);
+}
 
-async function execPickup(pkgId){const dt=document.getElementById('pickupRcv')?.value.trim();if(!dt){showToast('Informe quem retira','error');return}const p=state.packages.find(x=>x.id===pkgId);if(!p)return;const now=new Date().toISOString();p.status='delivered';p.deliveredAt=now;p.deliveredTo=dt;await DB.savePkg(p);const r=getR(p.residentId);if(r){const msg=`*PORTARIA*\n\n✅ Encomenda entregue!\n\n• Codigo: ${p.code}\n• Descricao: ${p.description}\n• Apto: ${p.apartment}\n\n👤 Recebida por: *${dt}*\n\n🕐 ${fmtDate(now)}\n\nCaso nao tenha sido voce, contate a portaria.`;const wa=waUrl(r.whatsapp,msg);document.getElementById('pickupCodeInput').value='';document.getElementById('pickupResult').innerHTML=`<div class="p-5 rounded-xl bg-green-500/5 border border-green-500/20"><div class="text-center mb-4"><i class="fa-solid fa-circle-check text-success text-3xl mb-2"></i><p class="text-success font-heading font-bold text-lg">Liberada</p><p class="text-fg-dim text-sm">Recebida por <strong class="text-fg">${dt}</strong></p></div><a href="${wa}" target="_blank" class="btn-whatsapp w-full justify-center mb-2"><i class="fa-brands fa-whatsapp"></i> Enviar Confirmacao</a><button class="btn-secondary w-full justify-center" onclick="document.getElementById('pickupResult').innerHTML=''">Fechar</button></div>`;showToast('Liberada','success');setTimeout(renderPickup,4000)}else{document.getElementById('pickupCodeInput').value='';document.getElementById('pickupResult').innerHTML=`<div class="p-5 rounded-xl bg-green-500/5 border border-green-500/20 text-center"><i class="fa-solid fa-circle-check text-success text-3xl mb-2"></i><p class="text-success font-heading font-bold">Liberada</p></div>`;showToast('Liberada','success');setTimeout(renderPickup,2500)}}
+async function execPickup(pkgId){
+    const dt=document.getElementById('pickupRcv')?.value.trim();
+    if(!dt){showToast('Informe quem retira','error');return}
+    const p=state.packages.find(x=>x.id===pkgId);if(!p)return;
+    const now=new Date().toISOString();
+    p.status='delivered';p.deliveredAt=now;p.deliveredTo=dt;
+    await DB.savePkg(p);
+    const r=getR(p.residentId);
+    if(r){
+        const msg=`*PORTARIA*\n\n✅ Encomenda entregue!\n\n• Codigo: ${p.code}\n• Descricao: ${p.description}\n• Apto: ${p.apartment}\n\n👤 Recebida por: *${dt}*\n\n🕐 ${fmtDate(now)}\n\nCaso nao tenha sido voce, contate a portaria.`;
+        const wa=waUrl(r.whatsapp,msg);
+        document.getElementById('pickupCodeInput').value='';
+        document.getElementById('pickupResult').innerHTML=`<div class="p-5 rounded-xl bg-green-500/5 border border-green-500/20"><div class="text-center mb-4"><i class="fa-solid fa-circle-check text-success text-3xl mb-2"></i><p class="text-success font-heading font-bold text-lg">Liberada</p><p class="text-fg-dim text-sm">Recebida por <strong class="text-fg">${dt}</strong></p></div><a href="${wa}" target="_blank" class="btn-whatsapp w-full justify-center mb-2"><i class="fa-brands fa-whatsapp"></i> Enviar Confirmacao</a><button class="btn-secondary w-full justify-center" onclick="document.getElementById('pickupResult').innerHTML=''">Fechar</button></div>`;
+        showToast('Liberada','success');
+        setTimeout(renderPickup,4000);
+    }else{
+        document.getElementById('pickupCodeInput').value='';
+        document.getElementById('pickupResult').innerHTML=`<div class="p-5 rounded-xl bg-green-500/5 border border-green-500/20 text-center"><i class="fa-solid fa-circle-check text-success text-3xl mb-2"></i><p class="text-success font-heading font-bold">Liberada</p></div>`;
+        showToast('Liberada','success');
+        setTimeout(renderPickup,2500);
+    }
+}
 
-// Mobile
+/* ============================================
+   MOBILE
+   ============================================ */
 function closeMobileSidebar(){document.getElementById('sidebar').classList.remove('open');document.getElementById('mobileOverlay').classList.remove('open')}
 document.getElementById('hamburgerBtn').addEventListener('click',()=>{document.getElementById('sidebar').classList.toggle('open');document.getElementById('mobileOverlay').classList.toggle('open')});
 document.getElementById('mobileOverlay').addEventListener('click',closeMobileSidebar);
-function updateClock(){const n=new Date(),t=n.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}),d=n.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'short'});const e=document.getElementById('clockDisplay');if(e)e.textContent=`${d} - ${t}`}
-async function init(){initSupabase();await DB.load();renderDashboard();updateClock();setInterval(updateClock,30000)}
+
+function updateClock(){
+    const n=new Date();
+    const t=n.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+    const d=n.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'short'});
+    const e=document.getElementById('clockDisplay');
+    if(e)e.textContent=`${d} - ${t}`;
+}
+
+/* ============================================
+   INICIALIZACAO
+   ============================================ */
+async function init(){
+    initSupabase();
+    await DB.load();
+    renderDashboard();
+    updateClock();
+    setInterval(updateClock,30000);
+}
 init();
 </script>
 </body>
