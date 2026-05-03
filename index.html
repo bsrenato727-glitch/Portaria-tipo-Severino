@@ -1,0 +1,1472 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portaria Digital - Sistema de Controle</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        bg: '#06080d',
+                        surface: '#0c1018',
+                        card: '#111a27',
+                        'card-hover': '#162032',
+                        border: '#1c2a3d',
+                        accent: '#00e5b0',
+                        'accent-dark': '#00b88d',
+                        'accent-glow': 'rgba(0,229,176,0.15)',
+                        muted: '#5a6b80',
+                        fg: '#e2e8f0',
+                        'fg-dim': '#94a3b8',
+                        danger: '#ef4444',
+                        'danger-dark': '#dc2626',
+                        warning: '#f59e0b',
+                        success: '#22c55e',
+                    },
+                    fontFamily: {
+                        heading: ['Space Grotesk', 'sans-serif'],
+                        body: ['DM Sans', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'DM Sans', sans-serif; background: #06080d; color: #e2e8f0; overflow-x: hidden; }
+        h1, h2, h3, h4, h5 { font-family: 'Space Grotesk', sans-serif; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #0c1018; }
+        ::-webkit-scrollbar-thumb { background: #1c2a3d; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #2a3a52; }
+
+        .bg-glow {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 0;
+            background:
+                radial-gradient(ellipse 600px 400px at 15% 20%, rgba(0,229,176,0.04) 0%, transparent 70%),
+                radial-gradient(ellipse 500px 500px at 85% 80%, rgba(0,150,255,0.03) 0%, transparent 70%),
+                radial-gradient(ellipse 800px 300px at 50% 50%, rgba(0,229,176,0.02) 0%, transparent 70%);
+        }
+
+        .sidebar { transition: transform 0.3s cubic-bezier(0.4,0,0.2,1); }
+        .sidebar-link {
+            display: flex; align-items: center; gap: 12px; padding: 12px 20px;
+            border-radius: 10px; transition: all 0.2s ease; color: #5a6b80;
+            position: relative; font-weight: 500;
+        }
+        .sidebar-link:hover { background: rgba(0,229,176,0.06); color: #94a3b8; }
+        .sidebar-link.active {
+            background: rgba(0,229,176,0.1); color: #00e5b0;
+            box-shadow: inset 3px 0 0 #00e5b0;
+        }
+        .sidebar-link i { width: 22px; text-align: center; font-size: 1.05rem; }
+
+        .stat-card {
+            background: #111a27; border: 1px solid #1c2a3d; border-radius: 14px;
+            padding: 24px; transition: all 0.3s ease; position: relative; overflow: hidden;
+        }
+        .stat-card::before {
+            content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+            background: linear-gradient(90deg, transparent, var(--card-accent, #00e5b0), transparent);
+            opacity: 0; transition: opacity 0.3s ease;
+        }
+        .stat-card:hover { border-color: #2a3a52; transform: translateY(-2px); }
+        .stat-card:hover::before { opacity: 1; }
+
+        .data-card {
+            background: #111a27; border: 1px solid #1c2a3d; border-radius: 12px;
+            transition: all 0.25s ease;
+        }
+        .data-card:hover { border-color: #2a3a52; background: #162032; }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #00e5b0, #00b88d); color: #06080d;
+            font-weight: 600; padding: 10px 22px; border-radius: 10px; border: none;
+            cursor: pointer; transition: all 0.2s ease; font-family: 'DM Sans', sans-serif;
+            font-size: 0.9rem; display: inline-flex; align-items: center; gap: 8px;
+        }
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(0,229,176,0.3); }
+        .btn-primary:active { transform: translateY(0); }
+
+        .btn-secondary {
+            background: #1c2a3d; color: #94a3b8; font-weight: 500;
+            padding: 10px 22px; border-radius: 10px; border: 1px solid #2a3a52;
+            cursor: pointer; transition: all 0.2s ease; font-family: 'DM Sans', sans-serif;
+            font-size: 0.9rem; display: inline-flex; align-items: center; gap: 8px;
+        }
+        .btn-secondary:hover { background: #223344; color: #e2e8f0; border-color: #3a4a62; }
+
+        .btn-danger {
+            background: rgba(239,68,68,0.1); color: #ef4444; font-weight: 500;
+            padding: 8px 16px; border-radius: 8px; border: 1px solid rgba(239,68,68,0.2);
+            cursor: pointer; transition: all 0.2s ease; font-family: 'DM Sans', sans-serif;
+            font-size: 0.85rem; display: inline-flex; align-items: center; gap: 6px;
+        }
+        .btn-danger:hover { background: rgba(239,68,68,0.2); border-color: rgba(239,68,68,0.4); }
+
+        .btn-icon {
+            width: 36px; height: 36px; border-radius: 8px; border: 1px solid #1c2a3d;
+            background: #111a27; color: #5a6b80; cursor: pointer; transition: all 0.2s ease;
+            display: inline-flex; align-items: center; justify-content: center;
+        }
+        .btn-icon:hover { border-color: #2a3a52; color: #94a3b8; background: #162032; }
+
+        .btn-scan {
+            background: linear-gradient(135deg, #0ea5e9, #0284c7); color: #fff;
+            font-weight: 600; padding: 10px 22px; border-radius: 10px; border: none;
+            cursor: pointer; transition: all 0.2s ease; font-family: 'DM Sans', sans-serif;
+            font-size: 0.9rem; display: inline-flex; align-items: center; gap: 8px;
+        }
+        .btn-scan:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(14,165,233,0.3); }
+
+        .form-input {
+            width: 100%; background: #0c1018; border: 1px solid #1c2a3d; border-radius: 10px;
+            padding: 11px 16px; color: #e2e8f0; font-family: 'DM Sans', sans-serif;
+            font-size: 0.9rem; transition: all 0.2s ease; outline: none;
+        }
+        .form-input:focus { border-color: #00e5b0; box-shadow: 0 0 0 3px rgba(0,229,176,0.1); }
+        .form-input::placeholder { color: #3a4a5c; }
+        .form-select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%235a6b80' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 14px center; padding-right: 36px; }
+        .form-label { display: block; font-size: 0.8rem; font-weight: 600; color: #5a6b80; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+        .modal-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
+            z-index: 1000; display: none; align-items: center; justify-content: center; padding: 16px;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal-content {
+            background: #111a27; border: 1px solid #1c2a3d; border-radius: 16px;
+            width: 100%; max-width: 640px; max-height: 90vh; overflow-y: auto;
+            animation: modalIn 0.3s cubic-bezier(0.4,0,0.2,1);
+        }
+        @keyframes modalIn {
+            from { opacity: 0; transform: translateY(20px) scale(0.97); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        /* Modal do scanner - maior para a câmera */
+        .modal-scanner .modal-content {
+            max-width: 480px;
+        }
+
+        .toast-container { position: fixed; top: 20px; right: 20px; z-index: 2000; display: flex; flex-direction: column; gap: 10px; }
+        .toast {
+            padding: 14px 20px; border-radius: 10px; font-size: 0.9rem; font-weight: 500;
+            display: flex; align-items: center; gap: 10px; min-width: 300px; max-width: 420px;
+            animation: toastIn 0.35s cubic-bezier(0.4,0,0.2,1);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        }
+        .toast.success { background: #0a2618; border: 1px solid #166534; color: #86efac; }
+        .toast.error { background: #2a0a0a; border: 1px solid #7f1d1d; color: #fca5a5; }
+        .toast.info { background: #0a1a2a; border: 1px solid #1e3a5f; color: #93c5fd; }
+        .toast.warning { background: #2a1a0a; border: 1px solid #78350f; color: #fcd34d; }
+        .toast-exit { animation: toastOut 0.3s ease forwards; }
+        @keyframes toastIn { from { opacity: 0; transform: translateX(100px); } to { opacity: 1; transform: translateX(0); } }
+        @keyframes toastOut { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(100px); } }
+
+        .code-display {
+            font-family: 'Space Grotesk', monospace; font-size: 2.5rem; font-weight: 700;
+            letter-spacing: 8px; color: #00e5b0;
+            text-shadow: 0 0 30px rgba(0,229,176,0.4);
+            padding: 20px; background: rgba(0,229,176,0.05);
+            border: 2px dashed rgba(0,229,176,0.3); border-radius: 12px;
+            text-align: center; user-select: all;
+        }
+
+        .badge {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 600;
+        }
+        .badge-pending { background: rgba(245,158,11,0.15); color: #fbbf24; }
+        .badge-delivered { background: rgba(34,197,94,0.15); color: #86efac; }
+
+        .table-container { overflow-x: auto; }
+        .data-table { width: 100%; border-collapse: collapse; }
+        .data-table th {
+            text-align: left; padding: 14px 16px; font-size: 0.75rem; font-weight: 700;
+            color: #5a6b80; text-transform: uppercase; letter-spacing: 0.8px;
+            border-bottom: 1px solid #1c2a3d; white-space: nowrap;
+        }
+        .data-table td {
+            padding: 14px 16px; border-bottom: 1px solid #0f1722;
+            font-size: 0.9rem; white-space: nowrap;
+        }
+        .data-table tbody tr { transition: background 0.15s ease; }
+        .data-table tbody tr:hover { background: rgba(0,229,176,0.03); }
+
+        .section { display: none; }
+        .section.active { display: block; animation: fadeIn 0.3s ease; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+        .tag {
+            display: inline-flex; align-items: center; gap: 5px;
+            padding: 5px 10px; border-radius: 6px; font-size: 0.78rem;
+            background: #0c1018; border: 1px solid #1c2a3d; color: #94a3b8;
+        }
+
+        .hamburger { display: none; }
+        @media (max-width: 768px) {
+            .hamburger { display: flex; }
+            .sidebar { transform: translateX(-100%); position: fixed; z-index: 500; }
+            .sidebar.open { transform: translateX(0); }
+            .mobile-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 499; }
+            .mobile-overlay.active { display: block; }
+        }
+
+        @keyframes codePulse {
+            0%, 100% { text-shadow: 0 0 30px rgba(0,229,176,0.4); }
+            50% { text-shadow: 0 0 50px rgba(0,229,176,0.7), 0 0 80px rgba(0,229,176,0.2); }
+        }
+        .code-pulse { animation: codePulse 2s ease-in-out infinite; }
+
+        .dynamic-item {
+            background: #0c1018; border: 1px solid #1c2a3d; border-radius: 10px;
+            padding: 16px; position: relative;
+        }
+
+        /* Scanner styles */
+        #qr-reader { width: 100%; }
+        #qr-reader video { border-radius: 12px !important; }
+        #qr-reader__scan_region { border-radius: 12px; overflow: hidden; }
+        #qr-reader__dashboard { margin-top: 12px; }
+        #qr-reader__dashboard button { 
+            background: #1c2a3d !important; color: #94a3b8 !important; border: 1px solid #2a3a52 !important;
+            border-radius: 8px !important; padding: 8px 16px !important; font-family: 'DM Sans' !important;
+            cursor: pointer !important;
+        }
+        #qr-reader__dashboard span { color: #5a6b80 !important; font-family: 'DM Sans' !important; }
+        #qr-reader__dashboard select { 
+            background: #0c1018 !important; color: #e2e8f0 !important; border: 1px solid #1c2a3d !important;
+            border-radius: 8px !important; padding: 8px !important; font-family: 'DM Sans' !important;
+        }
+
+        @keyframes scanLine {
+            0% { top: 0; }
+            50% { top: calc(100% - 3px); }
+            100% { top: 0; }
+        }
+        .scan-overlay {
+            position: absolute; inset: 0; pointer-events: none; z-index: 5;
+            border-radius: 12px; overflow: hidden;
+        }
+        .scan-overlay::before {
+            content: ''; position: absolute; left: 10%; right: 10%; height: 3px;
+            background: linear-gradient(90deg, transparent, #00e5b0, transparent);
+            box-shadow: 0 0 15px rgba(0,229,176,0.6);
+            animation: scanLine 2.5s ease-in-out infinite;
+        }
+        .scan-overlay::after {
+            content: ''; position: absolute; inset: 15%;
+            border: 2px solid rgba(0,229,176,0.4); border-radius: 12px;
+        }
+
+        @keyframes borderPulse {
+            0%, 100% { border-color: rgba(14,165,233,0.3); }
+            50% { border-color: rgba(14,165,233,0.6); }
+        }
+        .scanner-active { animation: borderPulse 1.5s ease-in-out infinite; }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+    <div class="bg-glow"></div>
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Modal principal -->
+    <div class="modal-overlay" id="modalOverlay" role="dialog" aria-modal="true">
+        <div class="modal-content" id="modalContent"></div>
+    </div>
+
+    <!-- Modal do scanner -->
+    <div class="modal-overlay modal-scanner" id="scannerModal" role="dialog" aria-modal="true">
+        <div class="modal-content" style="max-width:480px;">
+            <div class="p-5 border-b border-border flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-sky-500/10 flex items-center justify-center">
+                        <i class="fa-solid fa-qrcode text-sky-400"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-heading font-bold text-fg text-base" id="scannerTitle">Escanear Código</h3>
+                        <p class="text-muted text-xs" id="scannerSubtitle">Aponte a câmera para o código</p>
+                    </div>
+                </div>
+                <button class="btn-icon" onclick="stopScanner()" aria-label="Fechar scanner">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="p-5 relative" id="scannerBody">
+                <div id="qr-reader" style="border-radius:12px; overflow:hidden;"></div>
+                <div class="scan-overlay" id="scanOverlay"></div>
+            </div>
+            <div class="p-4 border-t border-border">
+                <div class="flex items-center gap-3 text-sm text-muted">
+                    <i class="fa-solid fa-circle-info text-sky-400"></i>
+                    <span id="scannerHint">Suporta QR Code, código de barras, Data Matrix e mais.</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="mobile-overlay" id="mobileOverlay"></div>
+
+    <div class="flex min-h-screen relative z-10">
+        <!-- Sidebar -->
+        <aside class="sidebar w-[260px] bg-surface border-r border-border flex flex-col fixed h-full" id="sidebar">
+            <div class="p-6 border-b border-border">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-accent-glow border border-accent/30 flex items-center justify-center">
+                        <i class="fa-solid fa-shield-halved text-accent text-lg"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-fg font-heading font-bold text-lg leading-tight">Portaria</h1>
+                        <span class="text-muted text-xs font-medium">Sistema Digital</span>
+                    </div>
+                </div>
+            </div>
+            <nav class="flex-1 p-4 flex flex-col gap-1" aria-label="Navegação principal">
+                <button class="sidebar-link active" data-section="dashboard" aria-current="page">
+                    <i class="fa-solid fa-chart-pie"></i> Painel Geral
+                </button>
+                <button class="sidebar-link" data-section="moradores">
+                    <i class="fa-solid fa-building-user"></i> Moradores
+                </button>
+                <button class="sidebar-link" data-section="encomendas">
+                    <i class="fa-solid fa-boxes-stacked"></i> Encomendas
+                </button>
+                <button class="sidebar-link" data-section="retirada">
+                    <i class="fa-solid fa-barcode"></i> Retirada
+                </button>
+            </nav>
+            <div class="p-4 border-t border-border">
+                <div class="flex items-center gap-3 px-3 py-2">
+                    <div class="w-8 h-8 rounded-full bg-card flex items-center justify-center">
+                        <i class="fa-solid fa-user-shield text-muted text-sm"></i>
+                    </div>
+                    <div>
+                        <p class="text-fg text-sm font-medium">Porteiro</p>
+                        <p class="text-muted text-xs">Turno ativo</p>
+                    </div>
+                    <div class="w-2 h-2 rounded-full bg-success ml-auto"></div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Conteúdo principal -->
+        <main class="flex-1 ml-0 md:ml-[260px]">
+            <header class="sticky top-0 z-40 bg-bg/80 backdrop-blur-xl border-b border-border">
+                <div class="flex items-center justify-between px-6 py-4">
+                    <div class="flex items-center gap-4">
+                        <button class="hamburger btn-icon" id="hamburgerBtn" aria-label="Abrir menu">
+                            <i class="fa-solid fa-bars"></i>
+                        </button>
+                        <div>
+                            <h2 class="text-fg font-heading font-bold text-xl" id="pageTitle">Painel Geral</h2>
+                            <p class="text-muted text-sm" id="pageSubtitle">Visão geral do condomínio</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <span class="text-muted text-sm hidden sm:block" id="clockDisplay"></span>
+                        <button class="btn-scan text-sm" onclick="openScannerForRegister()">
+                            <i class="fa-solid fa-qrcode"></i> <span class="hidden sm:inline">Escanear</span>
+                        </button>
+                        <button class="btn-primary text-sm" onclick="openNewPackageModal()">
+                            <i class="fa-solid fa-plus"></i> <span class="hidden sm:inline">Nova Encomenda</span>
+                        </button>
+                    </div>
+                </div>
+            </header>
+
+            <div class="p-6">
+                <section class="section active" id="section-dashboard"></section>
+                <section class="section" id="section-moradores"></section>
+                <section class="section" id="section-encomendas"></section>
+                <section class="section" id="section-retirada"></section>
+            </div>
+        </main>
+    </div>
+
+    <script>
+    // ============================================
+    // DADOS E ESTADO
+    // ============================================
+    const STORAGE_KEY = 'portaria_digital_v2';
+    let state = { residents: [], packages: [], currentSection: 'dashboard' };
+    let qrScanner = null;
+    let scannerCallback = null;
+    let vehicleCounter = 0;
+    let visitorCounter = 0;
+    let residentSearchQuery = '';
+    let packageFilter = 'all';
+
+    function getSeedData() {
+        return {
+            residents: [
+                {
+                    id: 'r1', name: 'Carlos Eduardo Silva', apartment: '101-A', whatsapp: '11999887766',
+                    vehicles: [
+                        { type: 'Carro', brand: 'Toyota', model: 'Corolla XEi', plate: 'ABC1D23' },
+                        { type: 'Moto', brand: 'Honda', model: 'CG 160 Fan', plate: 'DEF4G56' }
+                    ],
+                    visitors: [
+                        { name: 'Maria Aparecida Silva', relation: 'Cônjuge' },
+                        { name: 'Roberto Silva', relation: 'Pai' },
+                        { name: 'Ana Clara Silva', relation: 'Filha' }
+                    ]
+                },
+                {
+                    id: 'r2', name: 'Ana Paula Oliveira', apartment: '202-B', whatsapp: '11988776655',
+                    vehicles: [
+                        { type: 'Carro', brand: 'Hyundai', model: 'HB20S Comfort', plate: 'GHI7J89' }
+                    ],
+                    visitors: [
+                        { name: 'Pedro Henrique Oliveira', relation: 'Filho' },
+                        { name: 'Lúcia de Fátima', relation: 'Mãe' },
+                        { name: 'Marcos Vinícius', relation: 'Amigo(a)' }
+                    ]
+                },
+                {
+                    id: 'r3', name: 'Fernando Santos Lima', apartment: '303-A', whatsapp: '11977665544',
+                    vehicles: [
+                        { type: 'Carro', brand: 'Fiat', model: 'Pulse Impetus', plate: 'JKL0M12' },
+                        { type: 'Carro', brand: 'Honda', model: 'Civic Touring', plate: 'MNO3P45' }
+                    ],
+                    visitors: [
+                        { name: 'Camila Reis Santos', relation: 'Cônjuge' }
+                    ]
+                },
+                {
+                    id: 'r4', name: 'Júlia Rodrigues Mendes', apartment: '104-B', whatsapp: '11966554433',
+                    vehicles: [],
+                    visitors: [
+                        { name: 'Ricardo Mendes', relation: 'Irmão(ã)' },
+                        { name: 'Dona Irene', relation: 'Mãe' }
+                    ]
+                },
+                {
+                    id: 'r5', name: 'Roberto Almeida Costa', apartment: '405-A', whatsapp: '11955443322',
+                    vehicles: [
+                        { type: 'Carro', brand: 'Jeep', model: 'Compass Limited', plate: 'PQR6S78' },
+                        { type: 'Moto', brand: 'Yamaha', model: 'Factor 150', plate: 'STU9V01' }
+                    ],
+                    visitors: [
+                        { name: 'Fernanda Costa', relation: 'Cônjuge' },
+                        { name: 'Tiago Almeida', relation: 'Filho' },
+                        { name: 'Dona Irene Costa', relation: 'Mãe' },
+                        { name: 'Seu Joaquim', relation: 'Pai' }
+                    ]
+                }
+            ],
+            packages: [
+                {
+                    id: 'p1', code: 'K7N3W9', residentId: 'r1', residentName: 'Carlos Eduardo Silva',
+                    apartment: '101-A', description: 'Caixa grande - Mercado Livre', trackingCode: 'NL123456789BR',
+                    receivedAt: new Date(Date.now() - 3600000).toISOString(),
+                    status: 'pending', deliveredAt: null
+                },
+                {
+                    id: 'p2', code: 'R2M8X4', residentId: 'r4', residentName: 'Júlia Rodrigues Mendes',
+                    apartment: '104-B', description: 'Envelope - Correios', trackingCode: '',
+                    receivedAt: new Date(Date.now() - 7200000).toISOString(),
+                    status: 'pending', deliveredAt: null
+                },
+                {
+                    id: 'p3', code: 'A5H1J6', residentId: 'r2', residentName: 'Ana Paula Oliveira',
+                    apartment: '202-B', description: 'Sacola - Shopee', trackingCode: 'SH999888777',
+                    receivedAt: new Date(Date.now() - 18000000).toISOString(),
+                    status: 'delivered', deliveredAt: new Date(Date.now() - 7200000).toISOString()
+                }
+            ]
+        };
+    }
+
+    function loadData() {
+        try {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                state.residents = parsed.residents || [];
+                state.packages = parsed.packages || [];
+            } else {
+                const seed = getSeedData();
+                state.residents = seed.residents;
+                state.packages = seed.packages;
+                saveData();
+            }
+        } catch (e) {
+            const seed = getSeedData();
+            state.residents = seed.residents;
+            state.packages = seed.packages;
+        }
+    }
+
+    function saveData() {
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ residents: state.residents, packages: state.packages })); }
+        catch (e) {}
+    }
+
+    // ============================================
+    // UTILITÁRIOS
+    // ============================================
+    function generateId() { return 'id_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6); }
+    function generateCode() {
+        const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+        let code = '';
+        for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+        return code;
+    }
+    function formatPhone(phone) {
+        const digits = phone.replace(/\D/g, '');
+        if (digits.length === 11) return `(${digits.substr(0,2)}) ${digits.substr(2,5)}-${digits.substr(7,4)}`;
+        if (digits.length === 10) return `(${digits.substr(0,2)}) ${digits.substr(2,4)}-${digits.substr(6,4)}`;
+        return phone;
+    }
+    function getWhatsAppUrl(phone, message) {
+        const digits = phone.replace(/\D/g, '');
+        const num = digits.startsWith('55') ? digits : '55' + digits;
+        return `https://wa.me/${num}?text=${encodeURIComponent(message)}`;
+    }
+    function formatDate(iso) {
+        const d = new Date(iso);
+        return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' }) +
+            ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    }
+    function isToday(iso) {
+        const d = new Date(iso), now = new Date();
+        return d.getDate() === now.getDate() && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    }
+    function getResidentById(id) { return state.residents.find(r => r.id === id); }
+
+    // ============================================
+    // TOAST
+    // ============================================
+    function showToast(message, type = 'info') {
+        const container = document.getElementById('toastContainer');
+        const icons = { success: 'fa-circle-check', error: 'fa-circle-xmark', info: 'fa-circle-info', warning: 'fa-triangle-exclamation' };
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.innerHTML = `<i class="fa-solid ${icons[type] || icons.info}"></i><span>${message}</span>`;
+        container.appendChild(toast);
+        setTimeout(() => { toast.classList.add('toast-exit'); setTimeout(() => toast.remove(), 300); }, 4000);
+    }
+
+    // ============================================
+    // MODAL
+    // ============================================
+    function openModal(html) {
+        document.getElementById('modalContent').innerHTML = html;
+        document.getElementById('modalOverlay').classList.add('active');
+        document.body.style.overflow = 'hidden';
+        setTimeout(() => {
+            const firstInput = document.querySelector('#modalContent input, #modalContent select');
+            if (firstInput) firstInput.focus();
+        }, 100);
+    }
+    function closeModal() {
+        document.getElementById('modalOverlay').classList.remove('active');
+        document.body.style.overflow = '';
+    }
+    document.getElementById('modalOverlay').addEventListener('click', (e) => { if (e.target === e.currentTarget) closeModal(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeModal(); stopScanner(); } });
+
+    // ============================================
+    // SCANNER QR / CÓDIGO DE BARRAS
+    // ============================================
+    function openScanner(callback, title, subtitle, hint) {
+        scannerCallback = callback;
+        document.getElementById('scannerTitle').textContent = title || 'Escanear Código';
+        document.getElementById('scannerSubtitle').textContent = subtitle || 'Aponte a câmera para o código';
+        document.getElementById('scannerHint').textContent = hint || 'Suporta QR Code, código de barras, Data Matrix e mais.';
+        document.getElementById('scanOverlay').style.display = '';
+        document.getElementById('scannerModal').classList.add('active');
+        document.body.style.overflow = 'hidden';
+
+        // Limpar instância anterior
+        const readerEl = document.getElementById('qr-reader');
+        readerEl.innerHTML = '';
+
+        setTimeout(() => {
+            try {
+                qrScanner = new Html5Qrcode('qr-reader');
+                qrScanner.start(
+                    { facingMode: 'environment' },
+                    {
+                        fps: 10,
+                        qrbox: { width: 260, height: 160 },
+                        aspectRatio: 1.3,
+                        disableFlip: false
+                    },
+                    onScanSuccess,
+                    () => {} // erro silencioso a cada frame
+                ).catch(err => {
+                    console.error('Erro ao iniciar câmera:', err);
+                    showToast('Não foi possível acessar a câmera. Verifique as permissões.', 'error');
+                    stopScanner();
+                });
+            } catch (err) {
+                console.error('Erro html5-qrcode:', err);
+                showToast('Erro ao inicializar o scanner', 'error');
+                stopScanner();
+            }
+        }, 300);
+    }
+
+    function onScanSuccess(decodedText) {
+        // Vibração de feedback
+        if (navigator.vibrate) navigator.vibrate(100);
+
+        // Pausar scanner
+        if (qrScanner) {
+            qrScanner.pause(true);
+        }
+
+        // Esconder overlay de scan
+        document.getElementById('scanOverlay').style.display = 'none';
+
+        // Feedback visual
+        const body = document.getElementById('scannerBody');
+        const feedback = document.createElement('div');
+        feedback.className = 'absolute inset-0 flex items-center justify-center z-10';
+        feedback.style.background = 'rgba(6,8,13,0.85)';
+        feedback.innerHTML = `
+            <div class="text-center p-6">
+                <div class="w-16 h-16 rounded-full bg-accent/10 flex items-center justify-center mx-auto mb-4">
+                    <i class="fa-solid fa-circle-check text-accent text-3xl"></i>
+                </div>
+                <p class="text-accent font-heading font-bold text-lg mb-2">Código Lido</p>
+                <p class="text-fg font-mono text-sm bg-bg/60 rounded-lg px-4 py-3 break-all max-w-xs">${decodedText}</p>
+                <div class="flex gap-3 mt-5 justify-center">
+                    <button class="btn-secondary text-sm" onclick="resumeScanner()">
+                        <i class="fa-solid fa-rotate"></i> Escanear Outro
+                    </button>
+                    <button class="btn-primary text-sm" onclick="confirmScannedCode('${decodedText.replace(/'/g, "\\'")}')">
+                        <i class="fa-solid fa-check"></i> Usar Código
+                    </button>
+                </div>
+            </div>
+        `;
+        body.appendChild(feedback);
+    }
+
+    let lastScannedCode = '';
+    function confirmScannedCode(code) {
+        lastScannedCode = code;
+        stopScanner();
+        if (scannerCallback) scannerCallback(code);
+        scannerCallback = null;
+    }
+
+    function resumeScanner() {
+        const body = document.getElementById('scannerBody');
+        const feedback = body.querySelector('.absolute');
+        if (feedback) feedback.remove();
+        document.getElementById('scanOverlay').style.display = '';
+        if (qrScanner) {
+            qrScanner.resume();
+        }
+    }
+
+    function stopScanner() {
+        if (qrScanner) {
+            qrScanner.stop().then(() => {
+                qrScanner.clear();
+                qrScanner = null;
+            }).catch(() => {
+                qrScanner = null;
+            });
+        }
+        document.getElementById('scannerModal').classList.remove('active');
+        // Limpar feedback se existir
+        const body = document.getElementById('scannerBody');
+        const feedback = body.querySelector('.absolute');
+        if (feedback) feedback.remove();
+        // Só restaurar scroll se o modal principal não estiver aberto
+        if (!document.getElementById('modalOverlay').classList.contains('active')) {
+            document.body.style.overflow = '';
+        }
+    }
+
+    // Fechar scanner modal clicando fora
+    document.getElementById('scannerModal').addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) stopScanner();
+    });
+
+    // Scanner para registrar encomenda (lê código de rastreio)
+    function openScannerForRegister() {
+        openScanner(
+            (code) => {
+                // Abrir modal de nova encomenda com o código de rastreio preenchido
+                openNewPackageModal(code);
+            },
+            'Escanear Encomenda',
+            'Aponte para o QR Code ou código de barras da encomenda',
+            'O código lido será usado como código de rastreio da encomenda.'
+        );
+    }
+
+    // Scanner para retirada (lê código de retirada)
+    function openScannerForPickup() {
+        openScanner(
+            (code) => {
+                // Ir para retirada e preencher o código
+                navigate('retirada');
+                setTimeout(() => {
+                    const input = document.getElementById('pickupCodeInput');
+                    if (input) {
+                        input.value = code.toUpperCase().replace(/[^A-Z0-9]/g, '').substring(0, 6);
+                        verifyPickupCode();
+                    }
+                }, 200);
+            },
+            'Escanear Código de Retirada',
+            'Aponte para o QR Code apresentado pelo morador',
+            'O código de 6 caracteres será verificado automaticamente.'
+        );
+    }
+
+    // ============================================
+    // NAVEGAÇÃO
+    // ============================================
+    const pageTitles = {
+        dashboard: ['Painel Geral', 'Visão geral do condomínio'],
+        moradores: ['Moradores', 'Cadastro e gerenciamento de moradores'],
+        encomendas: ['Encomendas', 'Registro e acompanhamento de encomendas'],
+        retirada: ['Retirada de Encomendas', 'Verificação de código para liberação']
+    };
+
+    function navigate(section) {
+        state.currentSection = section;
+        document.querySelectorAll('.sidebar-link').forEach(link => {
+            link.classList.toggle('active', link.dataset.section === section);
+            if (link.dataset.section === section) link.setAttribute('aria-current', 'page');
+            else link.removeAttribute('aria-current');
+        });
+        document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+        document.getElementById('section-' + section).classList.add('active');
+        document.getElementById('pageTitle').textContent = pageTitles[section][0];
+        document.getElementById('pageSubtitle').textContent = pageTitles[section][1];
+        renderSection(section);
+        closeMobileSidebar();
+    }
+
+    document.querySelectorAll('.sidebar-link').forEach(link => {
+        link.addEventListener('click', () => navigate(link.dataset.section));
+    });
+
+    function renderSection(section) {
+        switch(section) {
+            case 'dashboard': renderDashboard(); break;
+            case 'moradores': renderResidents(); break;
+            case 'encomendas': renderPackages(); break;
+            case 'retirada': renderPickup(); break;
+        }
+    }
+
+    // ============================================
+    // DASHBOARD
+    // ============================================
+    function renderDashboard() {
+        const totalResidents = state.residents.length;
+        const totalVehicles = state.residents.reduce((sum, r) => sum + r.vehicles.length, 0);
+        const pendingPackages = state.packages.filter(p => p.status === 'pending').length;
+        const deliveredToday = state.packages.filter(p => p.status === 'delivered' && p.deliveredAt && isToday(p.deliveredAt)).length;
+        const recentPackages = [...state.packages].sort((a, b) => new Date(b.receivedAt) - new Date(a.receivedAt)).slice(0, 5);
+
+        document.getElementById('section-dashboard').innerHTML = `
+            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5 mb-8">
+                <div class="stat-card" style="--card-accent: #00e5b0;">
+                    <div class="flex items-center justify-between mb-3">
+                        <span class="text-muted text-sm font-medium">Moradores</span>
+                        <div class="w-10 h-10 rounded-lg bg-accent-glow flex items-center justify-center"><i class="fa-solid fa-building-user text-accent"></i></div>
+                    </div>
+                    <p class="text-3xl font-heading font-bold text-fg">${totalResidents}</p>
+                    <p class="text-muted text-xs mt-1">Apartamentos cadastrados</p>
+                </div>
+                <div class="stat-card" style="--card-accent: #f59e0b;">
+                    <div class="flex items-center justify-between mb-3">
+                        <span class="text-muted text-sm font-medium">Pendentes</span>
+                        <div class="w-10 h-10 rounded-lg bg-yellow-500/10 flex items-center justify-center"><i class="fa-solid fa-box-open text-warning"></i></div>
+                    </div>
+                    <p class="text-3xl font-heading font-bold text-fg">${pendingPackages}</p>
+                    <p class="text-muted text-xs mt-1">Aguardando retirada</p>
+                </div>
+                <div class="stat-card" style="--card-accent: #22c55e;">
+                    <div class="flex items-center justify-between mb-3">
+                        <span class="text-muted text-sm font-medium">Entregues Hoje</span>
+                        <div class="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center"><i class="fa-solid fa-circle-check text-success"></i></div>
+                    </div>
+                    <p class="text-3xl font-heading font-bold text-fg">${deliveredToday}</p>
+                    <p class="text-muted text-xs mt-1">Retiradas no dia</p>
+                </div>
+                <div class="stat-card" style="--card-accent: #8b5cf6;">
+                    <div class="flex items-center justify-between mb-3">
+                        <span class="text-muted text-sm font-medium">Veículos</span>
+                        <div class="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center"><i class="fa-solid fa-car text-purple-400"></i></div>
+                    </div>
+                    <p class="text-3xl font-heading font-bold text-fg">${totalVehicles}</p>
+                    <p class="text-muted text-xs mt-1">Registrados no sistema</p>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div class="lg:col-span-2 data-card">
+                    <div class="flex items-center justify-between p-5 border-b border-border">
+                        <h3 class="font-heading font-bold text-fg">Últimas Encomendas</h3>
+                        <button class="text-accent text-sm font-medium hover:underline" onclick="navigate('encomendas')">Ver todas</button>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead><tr><th>Código</th><th>Morador</th><th>Apto</th><th>Descrição</th><th>Status</th></tr></thead>
+                            <tbody>
+                                ${recentPackages.length === 0 ? '<tr><td colspan="5" class="text-center text-muted py-8">Nenhuma encomenda registrada</td></tr>' :
+                                recentPackages.map(p => `
+                                    <tr>
+                                        <td><span class="font-heading font-bold text-accent text-sm">${p.code}</span></td>
+                                        <td class="text-fg">${p.residentName}</td>
+                                        <td class="text-fg-dim">${p.apartment}</td>
+                                        <td class="text-fg-dim">${p.description}</td>
+                                        <td>${p.status === 'pending' ? '<span class="badge badge-pending"><i class="fa-solid fa-clock text-[10px]"></i> Pendente</span>' : '<span class="badge badge-delivered"><i class="fa-solid fa-check text-[10px]"></i> Entregue</span>'}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="data-card">
+                    <div class="p-5 border-b border-border"><h3 class="font-heading font-bold text-fg">Ações Rápidas</h3></div>
+                    <div class="p-5 flex flex-col gap-3">
+                        <button class="btn-scan w-full justify-center" onclick="openScannerForRegister()">
+                            <i class="fa-solid fa-qrcode"></i> Escanear Encomenda
+                        </button>
+                        <button class="btn-primary w-full justify-center" onclick="openNewPackageModal()">
+                            <i class="fa-solid fa-box"></i> Registrar Manual
+                        </button>
+                        <button class="btn-secondary w-full justify-center" onclick="navigate('retirada')">
+                            <i class="fa-solid fa-barcode"></i> Retirar Encomenda
+                        </button>
+                        <button class="btn-secondary w-full justify-center" onclick="openResidentForm()">
+                            <i class="fa-solid fa-user-plus"></i> Novo Morador
+                        </button>
+                    </div>
+                    <div class="border-t border-border p-5">
+                        <h4 class="text-muted text-xs font-bold uppercase tracking-wider mb-3">Moradores Cadastrados</h4>
+                        <div class="flex flex-col gap-2">
+                            ${state.residents.slice(0, 4).map(r => `
+                                <div class="flex items-center justify-between py-1.5">
+                                    <div class="flex items-center gap-2.5">
+                                        <div class="w-8 h-8 rounded-full bg-card flex items-center justify-center text-accent text-xs font-bold font-heading">${r.name.split(' ').map(n=>n[0]).slice(0,2).join('')}</div>
+                                        <div>
+                                            <p class="text-fg text-sm font-medium leading-tight">${r.name.split(' ').slice(0,2).join(' ')}</p>
+                                            <p class="text-muted text-xs">Apto ${r.apartment}</p>
+                                        </div>
+                                    </div>
+                                    <span class="text-muted text-xs">${r.vehicles.length} <i class="fa-solid fa-car text-[10px]"></i></span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    // ============================================
+    // MORADORES
+    // ============================================
+    function renderResidents() {
+        const filtered = residentSearchQuery
+            ? state.residents.filter(r => r.name.toLowerCase().includes(residentSearchQuery.toLowerCase()) || r.apartment.toLowerCase().includes(residentSearchQuery.toLowerCase()))
+            : state.residents;
+
+        document.getElementById('section-moradores').innerHTML = `
+            <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+                <div class="relative flex-1 max-w-md w-full">
+                    <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-muted text-sm"></i>
+                    <input type="text" class="form-input pl-11" placeholder="Buscar por nome ou apartamento..."
+                        value="${residentSearchQuery}" oninput="residentSearchQuery=this.value; renderResidents();">
+                </div>
+                <button class="btn-primary" onclick="openResidentForm()"><i class="fa-solid fa-user-plus"></i> Novo Morador</button>
+            </div>
+            ${filtered.length === 0 ? `
+                <div class="data-card p-12 text-center">
+                    <i class="fa-solid fa-building-user text-4xl text-muted mb-4"></i>
+                    <p class="text-fg font-heading font-bold text-lg mb-1">Nenhum morador encontrado</p>
+                    <p class="text-muted text-sm">${residentSearchQuery ? 'Tente outra busca' : 'Comece cadastrando o primeiro morador'}</p>
+                </div>
+            ` : `
+                <div class="data-card"><div class="table-container"><table class="data-table">
+                    <thead><tr><th>Nome</th><th>Apartamento</th><th>WhatsApp</th><th>Veículos</th><th>Visitantes</th><th class="text-right">Ações</th></tr></thead>
+                    <tbody>${filtered.map(r => `
+                        <tr>
+                            <td><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-full bg-accent-glow flex items-center justify-center text-accent text-xs font-bold font-heading shrink-0">${r.name.split(' ').map(n=>n[0]).slice(0,2).join('')}</div><span class="text-fg font-medium">${r.name}</span></div></td>
+                            <td class="text-fg-dim font-medium">${r.apartment}</td>
+                            <td><a href="https://wa.me/55${r.whatsapp.replace(/\D/g,'')}" target="_blank" class="text-accent hover:underline text-sm">${formatPhone(r.whatsapp)}</a></td>
+                            <td>${r.vehicles.length === 0 ? '<span class="text-muted text-sm">-</span>' : `<span class="badge" style="background:rgba(139,92,246,0.12);color:#c4b5fd;">${r.vehicles.length} veículo(s)</span>`}</td>
+                            <td>${r.visitors.length === 0 ? '<span class="text-muted text-sm">-</span>' : `<span class="badge" style="background:rgba(59,130,246,0.12);color:#93c5fd;">${r.visitors.length} visitante(s)</span>`}</td>
+                            <td><div class="flex items-center justify-end gap-2">
+                                <button class="btn-icon" title="Ver detalhes" onclick="openResidentDetail('${r.id}')"><i class="fa-solid fa-eye text-sm"></i></button>
+                                <button class="btn-icon" title="Editar" onclick="openResidentForm('${r.id}')"><i class="fa-solid fa-pen text-sm"></i></button>
+                                <button class="btn-icon" title="Excluir" style="color:#ef4444;border-color:rgba(239,68,68,0.2);" onclick="confirmDeleteResident('${r.id}')"><i class="fa-solid fa-trash text-sm"></i></button>
+                            </div></td>
+                        </tr>
+                    `).join('')}</tbody>
+                </table></div></div>
+            `}
+        `;
+    }
+
+    function openResidentForm(editId = null) {
+        const resident = editId ? getResidentById(editId) : null;
+        const isEdit = !!resident;
+        const vehicles = resident ? [...resident.vehicles] : [{ type: 'Carro', brand: '', model: '', plate: '' }];
+        const visitors = resident ? [...resident.visitors] : [{ name: '', relation: 'Cônjuge' }];
+        const vehicleTypes = ['Carro', 'Moto', 'Caminhonete', 'Van', 'Caminhão', 'Outro'];
+        const relations = ['Cônjuge', 'Filho(a)', 'Pai/Mãe', 'Irmão(ã)', 'Avó/Avô', 'Tio(a)', 'Amigo(a)', 'Empregado(a)', 'Prestador de serviço', 'Outro'];
+        vehicleCounter = vehicles.length;
+        visitorCounter = visitors.length;
+
+        openModal(`
+            <div class="p-6 border-b border-border">
+                <h3 class="font-heading font-bold text-fg text-lg">${isEdit ? 'Editar Morador' : 'Novo Morador'}</h3>
+                <p class="text-muted text-sm mt-1">${isEdit ? 'Atualize os dados do morador' : 'Preencha os dados para cadastrar'}</p>
+            </div>
+            <div class="p-6">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                    <div class="sm:col-span-2"><label class="form-label">Nome Completo</label><input type="text" class="form-input" id="frmName" placeholder="Ex: João da Silva" value="${isEdit ? resident.name : ''}"></div>
+                    <div><label class="form-label">Apartamento</label><input type="text" class="form-input" id="frmApartment" placeholder="Ex: 101-A" value="${isEdit ? resident.apartment : ''}"></div>
+                    <div><label class="form-label">WhatsApp</label><input type="tel" class="form-input" id="frmWhatsapp" placeholder="Ex: 11999887766" value="${isEdit ? resident.whatsapp : ''}"></div>
+                </div>
+                <div class="mb-6">
+                    <div class="flex items-center justify-between mb-3"><label class="form-label mb-0">Veículos</label><button type="button" class="text-accent text-sm font-medium hover:underline" onclick="addVehicleField()"><i class="fa-solid fa-plus text-xs"></i> Adicionar</button></div>
+                    <div id="vehiclesList" class="flex flex-col gap-3">${vehicles.map((v, i) => renderVehicleField(v, i, vehicleTypes)).join('')}</div>
+                </div>
+                <div class="mb-6">
+                    <div class="flex items-center justify-between mb-3"><label class="form-label mb-0">Visitantes Autorizados</label><button type="button" class="text-accent text-sm font-medium hover:underline" onclick="addVisitorField()"><i class="fa-solid fa-plus text-xs"></i> Adicionar</button></div>
+                    <div id="visitorsList" class="flex flex-col gap-3">${visitors.map((v, i) => renderVisitorField(v, i, relations)).join('')}</div>
+                </div>
+            </div>
+            <div class="p-6 border-t border-border flex items-center justify-end gap-3">
+                <button class="btn-secondary" onclick="closeModal()">Cancelar</button>
+                <button class="btn-primary" onclick="saveResident('${editId || ''}')"><i class="fa-solid fa-check"></i> ${isEdit ? 'Salvar Alterações' : 'Cadastrar'}</button>
+            </div>
+        `);
+    }
+
+    function renderVehicleField(v, index, types) {
+        return `<div class="dynamic-item" id="vehicle_${index}">
+            <div class="flex items-center justify-between mb-3"><span class="text-fg-dim text-sm font-medium">Veículo ${index + 1}</span><button type="button" class="text-danger text-xs hover:underline" onclick="removeDynamicItem('vehicle_${index}')"><i class="fa-solid fa-trash text-[10px]"></i> Remover</button></div>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div><label class="form-label">Tipo</label><select class="form-input form-select" data-v-type>${types.map(t => `<option value="${t}" ${v.type === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+                <div><label class="form-label">Marca</label><input type="text" class="form-input" placeholder="Toyota" value="${v.brand}" data-v-brand></div>
+                <div><label class="form-label">Modelo</label><input type="text" class="form-input" placeholder="Corolla" value="${v.model}" data-v-model></div>
+                <div><label class="form-label">Placa</label><input type="text" class="form-input" placeholder="ABC1D23" value="${v.plate}" data-v-plate style="text-transform:uppercase;"></div>
+            </div>
+        </div>`;
+    }
+
+    function renderVisitorField(v, index, relations) {
+        return `<div class="dynamic-item" id="visitor_${index}">
+            <div class="flex items-center justify-between mb-3"><span class="text-fg-dim text-sm font-medium">Visitante ${index + 1}</span><button type="button" class="text-danger text-xs hover:underline" onclick="removeDynamicItem('visitor_${index}')"><i class="fa-solid fa-trash text-[10px]"></i> Remover</button></div>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div class="sm:col-span-2"><label class="form-label">Nome Completo</label><input type="text" class="form-input" placeholder="Nome do visitante" value="${v.name}" data-vis-name></div>
+                <div><label class="form-label">Relação</label><select class="form-input form-select" data-vis-relation>${relations.map(r => `<option value="${r}" ${v.relation === r ? 'selected' : ''}>${r}</option>`).join('')}</select></div>
+            </div>
+        </div>`;
+    }
+
+    function addVehicleField() {
+        const container = document.getElementById('vehiclesList');
+        if (!container) return;
+        vehicleCounter++;
+        const types = ['Carro', 'Moto', 'Caminhonete', 'Van', 'Caminhão', 'Outro'];
+        container.insertAdjacentHTML('beforeend', renderVehicleField({ type: 'Carro', brand: '', model: '', plate: '' }, 'new_' + vehicleCounter, types));
+    }
+
+    function addVisitorField() {
+        const container = document.getElementById('visitorsList');
+        if (!container) return;
+        visitorCounter++;
+        const relations = ['Cônjuge', 'Filho(a)', 'Pai/Mãe', 'Irmão(ã)', 'Avó/Avô', 'Tio(a)', 'Amigo(a)', 'Empregado(a)', 'Prestador de serviço', 'Outro'];
+        container.insertAdjacentHTML('beforeend', renderVisitorField({ name: '', relation: 'Cônjuge' }, 'new_' + visitorCounter, relations));
+    }
+
+    function removeDynamicItem(id) { const el = document.getElementById(id); if (el) el.remove(); }
+
+    function saveResident(editId) {
+        const name = document.getElementById('frmName').value.trim();
+        const apartment = document.getElementById('frmApartment').value.trim();
+        const whatsapp = document.getElementById('frmWhatsapp').value.trim();
+        if (!name) { showToast('Informe o nome do morador', 'error'); return; }
+        if (!apartment) { showToast('Informe o número do apartamento', 'error'); return; }
+        if (!whatsapp || whatsapp.replace(/\D/g, '').length < 10) { showToast('Informe um WhatsApp válido', 'error'); return; }
+
+        const vehicles = [];
+        document.querySelectorAll('#vehiclesList .dynamic-item').forEach(item => {
+            const type = item.querySelector('[data-v-type]')?.value || '';
+            const brand = item.querySelector('[data-v-brand]')?.value.trim() || '';
+            const model = item.querySelector('[data-v-model]')?.value.trim() || '';
+            const plate = item.querySelector('[data-v-plate]')?.value.trim().toUpperCase() || '';
+            if (brand || model || plate) vehicles.push({ type, brand, model, plate });
+        });
+
+        const visitors = [];
+        document.querySelectorAll('#visitorsList .dynamic-item').forEach(item => {
+            const visName = item.querySelector('[data-vis-name]')?.value.trim() || '';
+            const relation = item.querySelector('[data-vis-relation]')?.value || '';
+            if (visName) visitors.push({ name: visName, relation });
+        });
+
+        if (editId) {
+            const idx = state.residents.findIndex(r => r.id === editId);
+            if (idx !== -1) {
+                state.residents[idx] = { ...state.residents[idx], name, apartment, whatsapp, vehicles, visitors };
+                state.packages.forEach(p => { if (p.residentId === editId) { p.residentName = name; p.apartment = apartment; } });
+            }
+            showToast('Morador atualizado com sucesso', 'success');
+        } else {
+            state.residents.push({ id: generateId(), name, apartment, whatsapp, vehicles, visitors });
+            showToast('Morador cadastrado com sucesso', 'success');
+        }
+        saveData(); closeModal(); renderResidents();
+    }
+
+    function confirmDeleteResident(id) {
+        const r = getResidentById(id);
+        if (!r) return;
+        const pendingPkgs = state.packages.filter(p => p.residentId === id && p.status === 'pending');
+        if (pendingPkgs.length > 0) { showToast(`Não é possível excluir: existem ${pendingPkgs.length} encomenda(s) pendente(s)`, 'error'); return; }
+        openModal(`
+            <div class="p-6 text-center">
+                <div class="w-16 h-16 rounded-full bg-danger/10 flex items-center justify-center mx-auto mb-4"><i class="fa-solid fa-triangle-exclamation text-danger text-2xl"></i></div>
+                <h3 class="font-heading font-bold text-fg text-lg mb-2">Excluir Morador</h3>
+                <p class="text-fg-dim mb-1">Tem certeza que deseja excluir <strong class="text-fg">${r.name}</strong>?</p>
+                <p class="text-muted text-sm">Apto ${r.apartment} - Esta ação não pode ser desfeita.</p>
+            </div>
+            <div class="p-6 border-t border-border flex items-center justify-center gap-3">
+                <button class="btn-secondary" onclick="closeModal()">Cancelar</button>
+                <button class="btn-danger" style="padding:10px 22px;font-size:0.9rem;" onclick="deleteResident('${id}')"><i class="fa-solid fa-trash"></i> Excluir</button>
+            </div>
+        `);
+    }
+
+    function deleteResident(id) {
+        state.residents = state.residents.filter(r => r.id !== id);
+        state.packages = state.packages.filter(p => p.residentId !== id);
+        saveData(); closeModal(); showToast('Morador excluído', 'success'); renderResidents();
+    }
+
+    function openResidentDetail(id) {
+        const r = getResidentById(id);
+        if (!r) return;
+        const pkgs = state.packages.filter(p => p.residentId === id).sort((a,b) => new Date(b.receivedAt) - new Date(a.receivedAt));
+        openModal(`
+            <div class="p-6 border-b border-border">
+                <div class="flex items-center gap-4">
+                    <div class="w-14 h-14 rounded-2xl bg-accent-glow border border-accent/20 flex items-center justify-center text-accent text-lg font-bold font-heading">${r.name.split(' ').map(n=>n[0]).slice(0,2).join('')}</div>
+                    <div class="flex-1"><h3 class="font-heading font-bold text-fg text-lg">${r.name}</h3><p class="text-muted text-sm">Apartamento ${r.apartment}</p></div>
+                    <a href="https://wa.me/55${r.whatsapp.replace(/\D/g,'')}" target="_blank" class="btn-icon" style="color:#25d366;border-color:rgba(37,211,102,0.3);" title="Abrir WhatsApp"><i class="fa-brands fa-whatsapp text-lg"></i></a>
+                </div>
+            </div>
+            <div class="p-6 space-y-5">
+                <div><h4 class="form-label mb-2">Contato</h4><p class="text-fg flex items-center gap-2"><i class="fa-brands fa-whatsapp text-[#25d366]"></i> ${formatPhone(r.whatsapp)}</p></div>
+                <div>
+                    <h4 class="form-label mb-2">Veículos (${r.vehicles.length})</h4>
+                    ${r.vehicles.length === 0 ? '<p class="text-muted text-sm">Nenhum veículo cadastrado</p>' :
+                    `<div class="flex flex-col gap-2">${r.vehicles.map(v => `<div class="tag" style="padding:10px 14px;"><i class="fa-solid ${v.type === 'Moto' ? 'fa-motorcycle' : 'fa-car'} text-accent text-xs"></i><span class="text-fg font-medium">${v.brand} ${v.model}</span><span class="text-muted">|</span><span class="text-accent font-heading font-bold">${v.plate}</span><span class="text-muted text-xs">(${v.type})</span></div>`).join('')}</div>`}
+                </div>
+                <div>
+                    <h4 class="form-label mb-2">Visitantes Autorizados (${r.visitors.length})</h4>
+                    ${r.visitors.length === 0 ? '<p class="text-muted text-sm">Nenhum visitante cadastrado</p>' :
+                    `<div class="flex flex-col gap-2">${r.visitors.map(v => `<div class="tag" style="padding:10px 14px;"><i class="fa-solid fa-user text-fg-dim text-xs"></i><span class="text-fg font-medium">${v.name}</span><span class="text-muted">-</span><span class="text-fg-dim text-xs">${v.relation}</span></div>`).join('')}</div>`}
+                </div>
+                <div>
+                    <h4 class="form-label mb-2">Encomendas (${pkgs.length})</h4>
+                    ${pkgs.length === 0 ? '<p class="text-muted text-sm">Nenhuma encomenda registrada</p>' :
+                    `<div class="flex flex-col gap-2">${pkgs.slice(0, 5).map(p => `<div class="flex items-center justify-between py-2 px-3 rounded-lg bg-bg/50"><div class="flex items-center gap-3"><span class="font-heading font-bold text-accent text-sm">${p.code}</span><span class="text-fg-dim text-sm">${p.description}</span></div><div class="flex items-center gap-2"><span class="text-muted text-xs">${formatDate(p.receivedAt)}</span>${p.status === 'pending' ? '<span class="badge badge-pending text-[11px]">Pendente</span>' : '<span class="badge badge-delivered text-[11px]">Entregue</span>'}</div></div>`).join('')}</div>`}
+                </div>
+            </div>
+            <div class="p-6 border-t border-border flex items-center justify-end gap-3">
+                <button class="btn-secondary" onclick="closeModal()">Fechar</button>
+                <button class="btn-primary" onclick="closeModal(); openResidentForm('${r.id}')"><i class="fa-solid fa-pen"></i> Editar</button>
+            </div>
+        `);
+    }
+
+    // ============================================
+    // ENCOMENDAS
+    // ============================================
+    function renderPackages() {
+        let filtered = [...state.packages].sort((a, b) => new Date(b.receivedAt) - new Date(a.receivedAt));
+        if (packageFilter === 'pending') filtered = filtered.filter(p => p.status === 'pending');
+        if (packageFilter === 'delivered') filtered = filtered.filter(p => p.status === 'delivered');
+        const pendingCount = state.packages.filter(p => p.status === 'pending').length;
+        const deliveredCount = state.packages.filter(p => p.status === 'delivered').length;
+
+        document.getElementById('section-encomendas').innerHTML = `
+            <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+                <div class="flex items-center gap-2 flex-wrap">
+                    <button class="btn-secondary text-sm ${packageFilter === 'all' ? '!bg-accent/10 !text-accent !border-accent/30' : ''}" onclick="packageFilter='all'; renderPackages();">Todas (${state.packages.length})</button>
+                    <button class="btn-secondary text-sm ${packageFilter === 'pending' ? '!bg-yellow-500/10 !text-warning !border-yellow-500/30' : ''}" onclick="packageFilter='pending'; renderPackages();">Pendentes (${pendingCount})</button>
+                    <button class="btn-secondary text-sm ${packageFilter === 'delivered' ? '!bg-green-500/10 !text-success !border-green-500/30' : ''}" onclick="packageFilter='delivered'; renderPackages();">Entregues (${deliveredCount})</button>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button class="btn-scan text-sm" onclick="openScannerForRegister()"><i class="fa-solid fa-qrcode"></i> Escanear</button>
+                    <button class="btn-primary text-sm" onclick="openNewPackageModal()"><i class="fa-solid fa-plus"></i> Nova Encomenda</button>
+                </div>
+            </div>
+            ${filtered.length === 0 ? `
+                <div class="data-card p-12 text-center">
+                    <i class="fa-solid fa-box-open text-4xl text-muted mb-4"></i>
+                    <p class="text-fg font-heading font-bold text-lg mb-1">Nenhuma encomenda</p>
+                    <p class="text-muted text-sm">${packageFilter === 'pending' ? 'Todas as encomendas foram retiradas' : packageFilter === 'delivered' ? 'Nenhuma encomenda entregue ainda' : 'Registre a primeira encomenda'}</p>
+                </div>
+            ` : `
+                <div class="data-card"><div class="table-container"><table class="data-table">
+                    <thead><tr><th>Código</th><th>Morador</th><th>Apto</th><th>Rastreio</th><th>Descrição</th><th>Recebida</th><th>Status</th><th class="text-right">Ações</th></tr></thead>
+                    <tbody>${filtered.map(p => `
+                        <tr>
+                            <td><span class="font-heading font-bold text-accent">${p.code}</span></td>
+                            <td class="text-fg font-medium">${p.residentName}</td>
+                            <td class="text-fg-dim">${p.apartment}</td>
+                            <td>${p.trackingCode ? `<span class="text-fg-dim text-xs font-mono">${p.trackingCode}</span>` : '<span class="text-muted text-xs">-</span>'}</td>
+                            <td class="text-fg-dim max-w-[180px] truncate">${p.description}</td>
+                            <td class="text-muted text-sm">${formatDate(p.receivedAt)}</td>
+                            <td>${p.status === 'pending' ? '<span class="badge badge-pending"><i class="fa-solid fa-clock text-[10px]"></i> Pendente</span>' : '<span class="badge badge-delivered"><i class="fa-solid fa-check text-[10px]"></i> Entregue</span>'}</td>
+                            <td><div class="flex items-center justify-end gap-2">
+                                ${p.status === 'pending' ? `
+                                    <button class="btn-icon" title="Notificar via WhatsApp" onclick="resendNotification('${p.id}')"><i class="fa-brands fa-whatsapp text-[#25d366]"></i></button>
+                                    <button class="btn-icon" title="Marcar como entregue" onclick="confirmDeliverPackage('${p.id}')"><i class="fa-solid fa-check text-success"></i></button>
+                                ` : `<span class="text-muted text-xs">${p.deliveredAt ? formatDate(p.deliveredAt) : ''}</span>`}
+                            </div></td>
+                        </tr>
+                    `).join('')}</tbody>
+                </table></div></div>
+            `}
+        `;
+    }
+
+    function openNewPackageModal(scannedCode = '') {
+        if (state.residents.length === 0) { showToast('Cadastre pelo menos um morador primeiro', 'warning'); return; }
+        const options = state.residents.map(r => `<option value="${r.id}">${r.name} - Apto ${r.apartment}</option>`).join('');
+
+        openModal(`
+            <div class="p-6 border-b border-border">
+                <h3 class="font-heading font-bold text-fg text-lg">Registrar Encomenda</h3>
+                <p class="text-muted text-sm mt-1">A encomenda será vinculada ao morador e ele será notificado</p>
+            </div>
+            <div class="p-6">
+                <div class="mb-4">
+                    <label class="form-label">Código de Rastreio (escaneado ou manual)</label>
+                    <div class="flex gap-2">
+                        <input type="text" class="form-input flex-1" id="pkgTracking" placeholder="Ex: NL123456789BR ou QR escaneado" value="${scannedCode}">
+                        <button class="btn-scan" onclick="scanForTrackingField()" title="Escanear código de barras">
+                            <i class="fa-solid fa-qrcode"></i>
+                        </button>
+                    </div>
+                    ${scannedCode ? '<p class="text-accent text-xs mt-1.5 flex items-center gap-1"><i class="fa-solid fa-circle-check"></i> Código escaneado automaticamente</p>' : ''}
+                </div>
+                <div class="mb-4">
+                    <label class="form-label">Morador</label>
+                    <select class="form-input form-select" id="pkgResident">
+                        <option value="">Selecione o morador...</option>
+                        ${options}
+                    </select>
+                </div>
+                <div class="mb-4">
+                    <label class="form-label">Descrição da Encomenda</label>
+                    <input type="text" class="form-input" id="pkgDescription" placeholder="Ex: Caixa grande - Mercado Livre">
+                </div>
+                <div class="p-4 rounded-xl bg-bg/60 border border-border">
+                    <p class="text-muted text-xs flex items-center gap-2">
+                        <i class="fa-solid fa-circle-info"></i>
+                        Um código único de retirada será gerado automaticamente e enviado ao morador via WhatsApp.
+                    </p>
+                </div>
+            </div>
+            <div class="p-6 border-t border-border flex items-center justify-end gap-3">
+                <button class="btn-secondary" onclick="closeModal()">Cancelar</button>
+                <button class="btn-primary" onclick="registerPackage()"><i class="fa-solid fa-box"></i> Registrar e Notificar</button>
+            </div>
+        `);
+    }
+
+    // Scanner dentro do modal de encomenda (para o campo de rastreio)
+    function scanForTrackingField() {
+        scannerCallback = (code) => {
+            const input = document.getElementById('pkgTracking');
+            if (input) input.value = code;
+            showToast('Código de rastreio preenchido: ' + code, 'success');
+        };
+        document.getElementById('scannerTitle').textContent = 'Escanear Rastreio';
+        document.getElementById('scannerSubtitle').textContent = 'Aponte para o código de barras ou QR da encomenda';
+        document.getElementById('scannerHint').textContent = 'O código lido preencherá o campo de rastreio automaticamente.';
+        document.getElementById('scanOverlay').style.display = '';
+        document.getElementById('scannerModal').classList.add('active');
+
+        const readerEl = document.getElementById('qr-reader');
+        readerEl.innerHTML = '';
+        setTimeout(() => {
+            try {
+                qrScanner = new Html5Qrcode('qr-reader');
+                qrScanner.start(
+                    { facingMode: 'environment' },
+                    { fps: 10, qrbox: { width: 260, height: 160 }, aspectRatio: 1.3, disableFlip: false },
+                    onScanSuccess,
+                    () => {}
+                ).catch(err => {
+                    showToast('Não foi possível acessar a câmera.', 'error');
+                    stopScanner();
+                });
+            } catch (err) { stopScanner(); }
+        }, 300);
+    }
+
+    function registerPackage() {
+        const residentId = document.getElementById('pkgResident').value;
+        const description = document.getElementById('pkgDescription').value.trim();
+        const trackingCode = document.getElementById('pkgTracking')?.value.trim() || '';
+        if (!residentId) { showToast('Selecione o morador', 'error'); return; }
+        if (!description) { showToast('Descreva a encomenda', 'error'); return; }
+        const resident = getResidentById(residentId);
+        if (!resident) { showToast('Morador não encontrado', 'error'); return; }
+
+        const code = generateCode();
+        const newPackage = {
+            id: generateId(), code, residentId: resident.id, residentName: resident.name,
+            apartment: resident.apartment, description, trackingCode,
+            receivedAt: new Date().toISOString(), status: 'pending', deliveredAt: null
+        };
+        state.packages.push(newPackage);
+        saveData();
+
+        const trackingInfo = trackingCode ? `\n• Rastreio: ${trackingCode}` : '';
+        const msg = `*PORTARIA DIGITAL*\n\nOlá, ${resident.name.split(' ')[0]}! 👋\n\n📦 Uma encomenda chegou para você:\n\n• Descrição: ${description}${trackingInfo}\n• Apartamento: ${resident.apartment}\n\n🔐 *Seu código de retirada: ${code}*\n\nApresente este código na portaria para retirar sua encomenda, sem necessidade de assinatura.\n\nRecebida em: ${formatDate(newPackage.receivedAt)}`;
+        const waUrl = getWhatsAppUrl(resident.whatsapp, msg);
+
+        document.getElementById('modalContent').innerHTML = `
+            <div class="p-8 text-center">
+                <div class="w-16 h-16 rounded-full bg-green-500/10 flex items-center justify-center mx-auto mb-5"><i class="fa-solid fa-circle-check text-success text-3xl"></i></div>
+                <h3 class="font-heading font-bold text-fg text-xl mb-2">Encomenda Registrada</h3>
+                <p class="text-fg-dim mb-6">Vinculada a <strong class="text-fg">${resident.name}</strong> - Apto ${resident.apartment}</p>
+                ${trackingCode ? `<p class="text-muted text-sm mb-3">Rastreio: <span class="text-fg-dim font-mono">${trackingCode}</span></p>` : ''}
+                <div class="code-display code-pulse mb-4" id="codeDisplay">${code}</div>
+                <p class="text-muted text-sm mb-6">Código de retirada do morador</p>
+                <div class="flex flex-col gap-3 max-w-xs mx-auto">
+                    <a href="${waUrl}" target="_blank" class="btn-primary w-full justify-center" style="background:linear-gradient(135deg,#25d366,#128c7e);font-size:0.95rem;"><i class="fa-brands fa-whatsapp text-lg"></i> Enviar pelo WhatsApp</a>
+                    <button class="btn-secondary w-full justify-center" onclick="copyCode('${code}')"><i class="fa-solid fa-copy"></i> Copiar Código</button>
+                </div>
+            </div>
+            <div class="p-6 border-t border-border flex items-center justify-center"><button class="btn-secondary" onclick="closeModal(); renderPackages();">Fechar</button></div>
+        `;
+    }
+
+    function copyCode(code) {
+        navigator.clipboard.writeText(code).then(() => showToast('Código copiado: ' + code, 'success')).catch(() => showToast('Não foi possível copiar', 'error'));
+    }
+
+    function resendNotification(pkgId) {
+        const pkg = state.packages.find(p => p.id === pkgId);
+        if (!pkg) return;
+        const resident = getResidentById(pkg.residentId);
+        if (!resident) { showToast('Morador não encontrado', 'error'); return; }
+        const msg = `*LEMBRETE - PORTARIA DIGITAL*\n\nOlá, ${resident.name.split(' ')[0]}! 👋\n\n📦 Sua encomenda ainda está aguardando retirada:\n\n• Descrição: ${pkg.description}\n• Apartamento: ${resident.apartment}\n\n🔐 *Seu código de retirada: ${pkg.code}*\n\nApresente este código na portaria.`;
+        window.open(getWhatsAppUrl(resident.whatsapp, msg), '_blank');
+        showToast('WhatsApp aberto com notificação', 'success');
+    }
+
+    function confirmDeliverPackage(pkgId) {
+        const pkg = state.packages.find(p => p.id === pkgId);
+        if (!pkg) return;
+        openModal(`
+            <div class="p-6 text-center">
+                <div class="w-16 h-16 rounded-full bg-green-500/10 flex items-center justify-center mx-auto mb-4"><i class="fa-solid fa-box-open text-success text-2xl"></i></div>
+                <h3 class="font-heading font-bold text-fg text-lg mb-2">Confirmar Entrega</h3>
+                <p class="text-fg-dim mb-1">Marcar encomenda <strong class="text-accent font-heading">${pkg.code}</strong> como entregue?</p>
+                <p class="text-muted text-sm">${pkg.residentName} - Apto ${pkg.apartment}</p>
+            </div>
+            <div class="p-6 border-t border-border flex items-center justify-center gap-3">
+                <button class="btn-secondary" onclick="closeModal()">Cancelar</button>
+                <button class="btn-primary" onclick="deliverPackage('${pkgId}')"><i class="fa-solid fa-check"></i> Confirmar Entrega</button>
+            </div>
+        `);
+    }
+
+    function deliverPackage(pkgId) {
+        const pkg = state.packages.find(p => p.id === pkgId);
+        if (!pkg) return;
+        pkg.status = 'delivered';
+        pkg.deliveredAt = new Date().toISOString();
+        saveData(); closeModal(); showToast(`Encomenda ${pkg.code} entregue com sucesso`, 'success'); renderPackages();
+    }
+
+    // ============================================
+    // RETIRADA
+    // ============================================
+    function renderPickup() {
+        const pendingCount = state.packages.filter(p => p.status === 'pending').length;
+        document.getElementById('section-retirada').innerHTML = `
+            <div class="max-w-lg mx-auto">
+                <div class="data-card p-8 mb-6">
+                    <div class="text-center mb-8">
+                        <div class="w-20 h-20 rounded-2xl bg-accent-glow border border-accent/20 flex items-center justify-center mx-auto mb-5">
+                            <i class="fa-solid fa-barcode text-accent text-3xl"></i>
+                        </div>
+                        <h3 class="font-heading font-bold text-fg text-2xl mb-2">Retirada de Encomenda</h3>
+                        <p class="text-muted">Informe o código ou escaneie o QR Code do morador</p>
+                    </div>
+
+                    <!-- Botão de scanner -->
+                    <button class="btn-scan w-full justify-center text-base py-3 mb-5" onclick="openScannerForPickup()">
+                        <i class="fa-solid fa-camera"></i> Escanear QR Code / Código de Barras
+                    </button>
+
+                    <div class="flex items-center gap-4 mb-5">
+                        <div class="flex-1 h-px bg-border"></div>
+                        <span class="text-muted text-xs font-medium uppercase tracking-wider">ou digite manualmente</span>
+                        <div class="flex-1 h-px bg-border"></div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="form-label text-center block">Código de Retirada</label>
+                        <input type="text" class="form-input text-center font-heading font-bold text-xl tracking-[6px] uppercase"
+                            id="pickupCodeInput" placeholder="Ex: K7N3W9" maxlength="6"
+                            oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'')"
+                            onkeydown="if(event.key==='Enter') verifyPickupCode()">
+                    </div>
+                    <button class="btn-primary w-full justify-center text-base py-3" onclick="verifyPickupCode()">
+                        <i class="fa-solid fa-magnifying-glass"></i> Verificar Código
+                    </button>
+                    <div id="pickupResult" class="mt-6"></div>
+                </div>
+
+                <div class="data-card p-6">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-10 h-10 rounded-lg bg-yellow-500/10 flex items-center justify-center"><i class="fa-solid fa-box-open text-warning"></i></div>
+                        <div>
+                            <p class="text-fg font-medium">${pendingCount} encomenda(s) pendente(s)</p>
+                            <p class="text-muted text-xs">Aguardando retirada</p>
+                        </div>
+                    </div>
+                    <div class="flex flex-col gap-2 max-h-48 overflow-y-auto">
+                        ${state.packages.filter(p => p.status === 'pending').map(p => `
+                            <div class="flex items-center justify-between py-2 px-3 rounded-lg bg-bg/50">
+                                <div class="flex items-center gap-3">
+                                    <span class="font-heading font-bold text-accent text-sm">${p.code}</span>
+                                    <span class="text-fg-dim text-sm">${p.residentName}</span>
+                                </div>
+                                <span class="text-muted text-xs">Apto ${p.apartment}</span>
+                            </div>
+                        `).join('') || '<p class="text-muted text-sm text-center py-2">Nenhuma pendente</p>'}
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    function verifyPickupCode() {
+        const code = document.getElementById('pickupCodeInput').value.trim().toUpperCase();
+        const resultDiv = document.getElementById('pickupResult');
+        if (!code) { showToast('Digite o código de retirada', 'warning'); return; }
+
+        const pkg = state.packages.find(p => p.code === code && p.status === 'pending');
+        if (!pkg) {
+            const allPkg = state.packages.find(p => p.code === code);
+            if (allPkg && allPkg.status === 'delivered') {
+                resultDiv.innerHTML = `<div class="p-5 rounded-xl bg-green-500/5 border border-green-500/20 text-center"><i class="fa-solid fa-circle-check text-success text-2xl mb-2"></i><p class="text-success font-heading font-bold">Já Retirada</p><p class="text-muted text-sm mt-1">Entregue em ${allPkg.deliveredAt ? formatDate(allPkg.deliveredAt) : ''}</p></div>`;
+            } else {
+                resultDiv.innerHTML = `<div class="p-5 rounded-xl bg-danger/5 border border-danger/20 text-center"><i class="fa-solid fa-circle-xmark text-danger text-2xl mb-2"></i><p class="text-danger font-heading font-bold">Código Não Encontrado</p><p class="text-muted text-sm mt-1">Verifique se o código foi digitado corretamente</p></div>`;
+            }
+            return;
+        }
+
+        resultDiv.innerHTML = `
+            <div class="p-5 rounded-xl bg-accent/5 border border-accent/20">
+                <div class="flex items-start gap-4 mb-4">
+                    <div class="w-12 h-12 rounded-xl bg-accent-glow flex items-center justify-center shrink-0"><i class="fa-solid fa-box text-accent text-lg"></i></div>
+                    <div class="flex-1">
+                        <p class="text-fg font-heading font-bold text-lg mb-1">Encomenda Encontrada</p>
+                        <div class="code-display text-xl py-3 mb-3">${pkg.code}</div>
+                    </div>
+                </div>
+                <div class="space-y-2 mb-5 text-sm">
+                    <div class="flex justify-between py-2 border-b border-border"><span class="text-muted">Morador</span><span class="text-fg font-medium">${pkg.residentName}</span></div>
+                    <div class="flex justify-between py-2 border-b border-border"><span class="text-muted">Apartamento</span><span class="text-fg font-medium">${pkg.apartment}</span></div>
+                    <div class="flex justify-between py-2 border-b border-border"><span class="text-muted">Descrição</span><span class="text-fg font-medium">${pkg.description}</span></div>
+                    ${pkg.trackingCode ? `<div class="flex justify-between py-2 border-b border-border"><span class="text-muted">Rastreio</span><span class="text-fg font-medium font-mono text-xs">${pkg.trackingCode}</span></div>` : ''}
+                    <div class="flex justify-between py-2"><span class="text-muted">Recebida em</span><span class="text-fg font-medium">${formatDate(pkg.receivedAt)}</span></div>
+                </div>
+                <button class="btn-primary w-full justify-center py-3 text-base" onclick="confirmPickupFromRetirada('${pkg.id}')">
+                    <i class="fa-solid fa-check-double"></i> Liberar Encomenda
+                </button>
+            </div>
+        `;
+    }
+
+    function confirmPickupFromRetirada(pkgId) {
+        const pkg = state.packages.find(p => p.id === pkgId);
+        if (!pkg) return;
+        pkg.status = 'delivered';
+        pkg.deliveredAt = new Date().toISOString();
+        saveData();
+        showToast(`Encomenda ${pkg.code} liberada com sucesso`, 'success');
+        document.getElementById('pickupCodeInput').value = '';
+        document.getElementById('pickupResult').innerHTML = `
+            <div class="p-5 rounded-xl bg-green-500/5 border border-green-500/20 text-center">
+                <i class="fa-solid fa-circle-check text-success text-3xl mb-2"></i>
+                <p class="text-success font-heading font-bold text-lg">Encomenda Liberada</p>
+                <p class="text-muted text-sm mt-1">Entregue ao morador do Apto ${pkg.apartment}</p>
+            </div>
+        `;
+        setTimeout(() => renderPickup(), 2500);
+    }
+
+    // ============================================
+    // MOBILE SIDEBAR
+    // ============================================
+    function closeMobileSidebar() {
+        document.getElementById('sidebar').classList.remove('open');
+        document.getElementById('mobileOverlay').classList.remove('active');
+    }
+    document.getElementById('hamburgerBtn').addEventListener('click', () => {
+        document.getElementById('sidebar').classList.toggle('open');
+        document.getElementById('mobileOverlay').classList.toggle('active');
+    });
+    document.getElementById('mobileOverlay').addEventListener('click', closeMobileSidebar);
+
+    // ============================================
+    // RELOGIO
+    // ============================================
+    function updateClock() {
+        const now = new Date();
+        const time = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        const date = now.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'short' });
+        const el = document.getElementById('clockDisplay');
+        if (el) el.textContent = `${date} - ${time}`;
+    }
+
+    // ============================================
+    // INICIALIZAÇÃO
+    // ============================================
+    function init() {
+        loadData();
+        renderDashboard();
+        updateClock();
+        setInterval(updateClock, 30000);
+    }
+    init();
+    </script>
+</body>
+</html>
