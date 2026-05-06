@@ -546,6 +546,7 @@ function renderDashboard() {
 }
 
 /* ============================================
+   /* ============================================
    MORADORES
    ============================================ */
 function renderResidents() {
@@ -554,37 +555,59 @@ function renderResidents() {
         var q = residentSearchQuery.toLowerCase();
         list = list.filter(function(r) { return r.name.toLowerCase().includes(q) || r.apartment.toLowerCase().includes(q) || r.whatsapp.includes(q) });
     }
-    document.getElementById('section-moradores').innerHTML =
+
+    var section = document.getElementById('section-moradores');
+    var currentFocus = (document.activeElement && document.activeElement.id === 'searchResidentInput');
+    
+    section.innerHTML =
         '<div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">' +
-            '<div class="flex-1 w-full sm:max-w-xs"><input type="text" class="form-input" placeholder="Buscar morador..." value="' + residentSearchQuery + '" oninput="residentSearchQuery=this.value;renderResidents()"></div>' +
+            '<div class="flex-1 w-full sm:max-w-xs">' +
+                '<input type="text" id="searchResidentInput" class="form-input" placeholder="Buscar morador..." value="' + (residentSearchQuery || '') + '" oninput="filterResidentsOnly(this.value)">' +
+            '</div>' +
             '<button class="btn-primary" onclick="openResidentForm()"><i class="fa-solid fa-plus"></i> Novo Morador</button>' +
         '</div>' +
-        (list.length === 0 ? '<div class="data-card p-12 text-center"><i class="fa-solid fa-building-user text-4xl text-muted mb-4"></i><p class="text-fg font-heading font-bold text-lg">Nenhum morador</p><p class="text-muted text-sm mt-1">Cadastre o primeiro morador</p></div>' :
-        '<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">' +
+        '<div id="residentsGrid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">' +
+            (list.length === 0 ? '<div class="data-card p-12 text-center col-span-full"><i class="fa-solid fa-building-user text-4xl text-muted mb-4"></i><p class="text-fg font-heading font-bold text-lg">Nenhum morador</p></div>' :
+            list.map(function(r) {
+                var initials = r.name.split(' ').map(function(n) { return n[0] }).slice(0, 2).join('');
+                var pkCount = state.packages.filter(function(p) { return p.residentId === r.id && p.status === 'pending' }).length;
+                return '<div class="data-card p-5 hover:border-accent/30 transition-all cursor-pointer" onclick="openResidentDetail(\'' + r.id + '\')">' +
+                    '<div class="flex items-center gap-4 mb-3"><div class="w-12 h-12 rounded-xl bg-accent-glow border border-accent/20 flex items-center justify-center text-accent font-heading font-bold">' + initials + '</div><div class="flex-1 min-w-0"><p class="text-fg font-heading font-bold truncate">' + r.name + '</p><p class="text-accent text-sm font-medium">Apto ' + r.apartment + '</p></div></div>' +
+                    '<div class="flex items-center justify-between text-sm"><span class="text-muted"><i class="fa-brands fa-whatsapp text-[#25d366]"></i> ' + formatPhone(r.whatsapp) + '</span>' +
+                    (pkCount > 0 ? '<span class="badge badge-pending">' + pkCount + ' pendente(s)</span>' : '') +
+                    '</div><div class="flex items-center gap-2 mt-3 pt-3 border-t border-border"><span class="text-muted text-xs"><i class="fa-solid fa-car"></i> ' + (r.vehicles || []).length + ' veiculo(s)</span><span class="text-muted text-xs ml-auto"><i class="fa-solid fa-user"></i> ' + (r.visitors || []).length + ' visitante(s)</span></div></div>';
+            }).join('')) + '</div>';
+
+    if (currentFocus) {
+        var input = document.getElementById('searchResidentInput');
+        input.focus();
+        input.selectionStart = input.selectionEnd = input.value.length;
+    }
+}
+
+function filterResidentsOnly(val) {
+    residentSearchQuery = val;
+    var list = state.residents.filter(function(r) { 
+        var q = val.toLowerCase();
+        return r.name.toLowerCase().includes(q) || r.apartment.toLowerCase().includes(q) || r.whatsapp.includes(q);
+    });
+    var grid = document.getElementById('residentsGrid');
+    if (grid) {
+        grid.innerHTML = list.length === 0 ? '<div class="data-card p-12 text-center col-span-full">Nenhum resultado</div>' :
         list.map(function(r) {
             var initials = r.name.split(' ').map(function(n) { return n[0] }).slice(0, 2).join('');
             var pkCount = state.packages.filter(function(p) { return p.residentId === r.id && p.status === 'pending' }).length;
             return '<div class="data-card p-5 hover:border-accent/30 transition-all cursor-pointer" onclick="openResidentDetail(\'' + r.id + '\')">' +
-                '<div class="flex items-center gap-4 mb-3"><div class="w-12 h-12 rounded-xl bg-accent-glow border border-accent/20 flex items-center justify-center text-accent font-heading font-bold">' + initials + '</div><div class="flex-1 min-w-0"><p class="text-fg font-heading font-bold truncate">' + r.name + '</p><p class="text-accent text-sm font-medium">Apto ' + r.apartment + '</p></div></div>' +
-                '<div class="flex items-center justify-between text-sm"><span class="text-muted"><i class="fa-brands fa-whatsapp text-[#25d366]"></i> ' + formatPhone(r.whatsapp) + '</span>' +
-                (pkCount > 0 ? '<span class="badge badge-pending">' + pkCount + ' pendente(s)</span>' : '') +
-                '</div><div class="flex items-center gap-2 mt-3 pt-3 border-t border-border"><span class="text-muted text-xs"><i class="fa-solid fa-car"></i> ' + (r.vehicles || []).length + ' veiculo(s)</span><span class="text-muted text-xs ml-auto"><i class="fa-solid fa-user"></i> ' + (r.visitors || []).length + ' visitante(s)</span></div></div>';
-        }).join('') + '</div>');
+                   '<div class="flex items-center gap-4 mb-3"><div class="w-12 h-12 rounded-xl bg-accent-glow border border-accent/20 flex items-center justify-center text-accent font-heading font-bold">' + initials + '</div><div class="flex-1 min-w-0"><p class="text-fg font-heading font-bold truncate">' + r.name + '</p><p class="text-accent text-sm font-medium">Apto ' + r.apartment + '</p></div></div>' +
+                   '<div class="flex items-center justify-between text-sm"><span class="text-muted"><i class="fa-brands fa-whatsapp text-[#25d366]"></i> ' + formatPhone(r.whatsapp) + '</span>' + (pkCount > 0 ? '<span class="badge badge-pending">' + pkCount + ' pendente(s)</span>' : '') + '</div></div>';
+        }).join('');
+    }
 }
 
 function openResidentForm(editId) {
     var r = editId ? getR(editId) : null;
     var title = r ? 'Editar Morador' : 'Novo Morador';
-    openModal(
-        '<div class="p-6 border-b border-border"><h3 class="font-heading font-bold text-fg text-lg">' + title + '</h3></div>' +
-        '<div class="p-6 space-y-4">' +
-            '<div><label class="form-label">Nome Completo</label><input type="text" class="form-input" id="rName" value="' + (r ? r.name : '') + '"></div>' +
-            '<div class="grid grid-cols-2 gap-4"><div><label class="form-label">Apartamento</label><input type="text" class="form-input" id="rApt" value="' + (r ? r.apartment : '') + '"></div><div><label class="form-label">WhatsApp</label><input type="text" class="form-input" id="rWhats" value="' + (r ? r.whatsapp : '') + '"></div></div>' +
-            '<div><label class="form-label">Veiculos</label><div id="rVehicles" class="space-y-2">' + (r ? (r.vehicles || []).map(function(v) { return vehicleHtml(v) }).join('') : '') + '</div><button class="btn-secondary text-sm mt-2" onclick="addVehicleField()"><i class="fa-solid fa-plus"></i> Adicionar Veiculo</button></div>' +
-            '<div><label class="form-label">Visitantes Frequentes</label><div id="rVisitors" class="space-y-2">' + (r ? (r.visitors || []).map(function(v) { return visitorHtml(v) }).join('') : '') + '</div><button class="btn-secondary text-sm mt-2" onclick="addVisitorField()"><i class="fa-solid fa-plus"></i> Adicionar Visitante</button></div>' +
-        '</div>' +
-        '<div class="p-6 border-t border-border flex items-center justify-end gap-3"><button class="btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn-primary" onclick="saveResident(\'' + (editId || '') + '\')"><i class="fa-solid fa-check"></i> Salvar</button></div>'
-    );
+    openModal('<div class="p-6 border-b border-border"><h3 class="font-heading font-bold text-fg text-lg">' + title + '</h3></div><div class="p-6 space-y-4"><div><label class="form-label">Nome Completo</label><input type="text" class="form-input" id="rName" value="' + (r ? r.name : '') + '"></div><div class="grid grid-cols-2 gap-4"><div><label class="form-label">Apartamento</label><input type="text" class="form-input" id="rApt" value="' + (r ? r.apartment : '') + '"></div><div><label class="form-label">WhatsApp</label><input type="text" class="form-input" id="rWhats" value="' + (r ? r.whatsapp : '') + '"></div></div><div><label class="form-label">Veiculos</label><div id="rVehicles" class="space-y-2">' + (r ? (r.vehicles || []).map(function(v) { return vehicleHtml(v) }).join('') : '') + '</div><button class="btn-secondary text-sm mt-2" onclick="addVehicleField()"><i class="fa-solid fa-plus"></i> Adicionar Veiculo</button></div><div><label class="form-label">Visitantes Frequentes</label><div id="rVisitors" class="space-y-2">' + (r ? (r.visitors || []).map(function(v) { return visitorHtml(v) }).join('') : '') + '</div><button class="btn-secondary text-sm mt-2" onclick="addVisitorField()"><i class="fa-solid fa-plus"></i> Adicionar Visitante</button></div></div><div class="p-6 border-t border-border flex items-center justify-end gap-3"><button class="btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn-primary" onclick="saveResident(\'' + (editId || '') + '\')"><i class="fa-solid fa-check"></i> Salvar</button></div>');
 }
 
 function vehicleHtml(v) { return '<div class="dynamic-item flex items-center gap-2"><select class="form-input form-select" style="width:100px"><option value="Carro"' + (v && v.type === 'Carro' ? ' selected' : '') + '>Carro</option><option value="Moto"' + (v && v.type === 'Moto' ? ' selected' : '') + '>Moto</option></select><input type="text" class="form-input flex-1" placeholder="Marca/Modelo" value="' + (v ? v.brand : '') + '"><input type="text" class="form-input" style="width:130px" placeholder="ABC-1D23" value="' + (v ? v.plate : '') + '"></div>'; }
@@ -638,64 +661,17 @@ function confirmDelR(id) {
     if (state.packages.filter(function(p) { return p.residentId === id && p.status === 'pending' }).length > 0) { showToast('Existe encomenda pendente', 'error'); return }
     openModal('<div class="p-6 text-center"><div class="w-16 h-16 rounded-full bg-danger/10 flex items-center justify-center mx-auto mb-4"><i class="fa-solid fa-triangle-exclamation text-danger text-2xl"></i></div><h3 class="font-heading font-bold text-fg text-lg mb-2">Excluir</h3><p class="text-fg-dim">Excluir <strong class="text-fg">' + r.name + '</strong>?</p></div><div class="p-6 border-t border-border flex items-center justify-center gap-3"><button class="btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn-danger" style="padding:10px 22px" onclick="doDelR(\'' + id + '\')"><i class="fa-solid fa-trash"></i> Excluir</button></div>');
 }
-    function openResidentDetail(id) {
-    var r = getR(id); 
-    if (!r) return;
+
+function openResidentDetail(id) {
+    var r = getR(id); if (!r) return;
     var pk = state.packages.filter(function(p) { return p.residentId === id }).sort(function(a, b) { return new Date(b.receivedAt) - new Date(a.receivedAt) });
     var pv = state.providers.filter(function(p) { return p.residentId === id });
     var initials = r.name.split(' ').map(function(n) { return n[0] }).slice(0, 2).join('');
-    
-    openModal(
-        '<div class="p-6 border-b border-border"><div class="flex items-center gap-4"><div class="w-14 h-14 rounded-2xl bg-accent-glow border border-accent/20 flex items-center justify-center text-accent text-lg font-bold font-heading">' + initials + '</div><div class="flex-1"><h3 class="font-heading font-bold text-fg text-lg">' + r.name + '</h3><p class="text-muted text-sm">Apto ' + r.apartment + '</p></div><a href="https://wa.me/55' + r.whatsapp.replace(/\D/g, '') + '" target="_blank" class="btn-icon" style="color:#25d366;border-color:rgba(37,211,102,.3)"><i class="fa-brands fa-whatsapp text-lg"></i></a></div></div>' +
-        '<div class="p-6 space-y-5">' +
-            '<div><h4 class="form-label mb-2">Contato</h4><p class="text-fg"><i class="fa-brands fa-whatsapp text-[#25d366]"></i> ' + formatPhone(r.whatsapp) + '</p></div>' +
-            '<div><h4 class="form-label mb-2">Veiculos (' + (r.vehicles || []).length + ')</h4>' + ((r.vehicles || []).length === 0 ? '<p class="text-muted text-sm">Nenhum</p>' : '<div class="flex flex-col gap-2">' + (r.vehicles || []).map(function(v) { return '<div class="tag" style="padding:10px 14px"><i class="fa-solid ' + (v.type === 'Moto' ? 'fa-motorcycle' : 'fa-car') + ' text-accent text-xs"></i><span class="text-fg font-medium">' + v.brand + '</span><span class="text-muted">|</span><span class="text-accent font-heading font-bold">' + v.plate + '</span></div>' }).join('') + '</div>') + '</div>' +
-            '<div><h4 class="form-label mb-2">Visitantes (' + (r.visitors || []).length + ')</h4>' + ((r.visitors || []).length === 0 ? '<p class="text-muted text-sm">Nenhum</p>' : '<div class="flex flex-col gap-2">' + (r.visitors || []).map(function(v) { return '<div class="tag" style="padding:10px 14px"><i class="fa-solid fa-user text-fg-dim text-xs"></i><span class="text-fg font-medium">' + v.name + '</span><span class="text-muted">-</span><span class="text-fg-dim text-xs">' + v.relation + '</span></div>' }).join('') + '</div>') + '</div>' +
-            '<div><h4 class="form-label mb-2">Prestadores (' + pv.length + ')</h4>' + (pv.length === 0 ? '<p class="text-muted text-sm">Nenhum</p>' : '<div class="flex flex-col gap-2">' + pv.map(function(p) { return '<div class="tag" style="padding:10px 14px"><i class="fa-solid fa-id-card-clip text-sky-400 text-xs"></i><span class="text-fg font-medium">' + p.name + '</span><span class="text-muted">-</span><span class="text-fg-dim text-xs">' + p.serviceType + '</span></div>' }).join('') + '</div>') + '</div>' +
-            '<div><h4 class="form-label mb-2">Encomendas (' + pk.length + ')</h4>' + (pk.length === 0 ? '<p class="text-muted text-sm">Nenhuma</p>' : '<div class="flex flex-col gap-2">' + pk.slice(0, 6).map(function(p) { return '<div class="flex items-center justify-between py-2 px-3 rounded-lg bg-bg/50 gap-3"><div class="flex items-center gap-3 min-w-0">' + (p.photoUrl ? '<img src="' + p.photoUrl + '" class="w-7 h-7 rounded object-cover shrink-0">' : '') + '<span class="font-heading font-bold text-accent text-sm shrink-0">' + p.code + '</span><span class="text-fg-dim text-sm truncate">' + p.description + '</span></div><div class="flex items-center gap-2 shrink-0">' + (p.status === 'pending' ? '<span class="badge badge-pending text-[11px]">Pendente</span>' : '<span class="badge badge-delivered text-[11px]">Entregue</span>') + '</div></div>' }).join('') + '</div>') + '</div>' +
-        '</div>' +
-        '<div class="p-6 border-t border-border flex items-center justify-between"><button class="btn-danger" onclick="confirmDelR(\'' + r.id + '\')"><i class="fa-solid fa-trash"></i> Excluir</button><div class="flex gap-3"><button class="btn-secondary" onclick="closeModal()">Fechar</button><button class="btn-primary" onclick="closeModal();openResidentForm(\'' + r.id + '\')"><i class="fa-solid fa-pen"></i> Editar</button></div></div>'
-    );
-}
-function confirmDelR(id) {
-    var r = getR(id); 
-    if (!r) return;
-    
-    // Verifica se existem encomendas pendentes antes de permitir a exclusão
-    var pendingPk = state.packages.filter(function(p) { return p.residentId === id && p.status === 'pending' });
-    if (pendingPk.length > 0) { 
-        showToast('Existe encomenda pendente para este morador!', 'error'); 
-        return; 
-    }
-    
-    openModal(
-        '<div class="p-6 text-center">' +
-            '<div class="w-16 h-16 rounded-full bg-danger/10 flex items-center justify-center mx-auto mb-4">' +
-                '<i class="fa-solid fa-triangle-exclamation text-danger text-2xl"></i>' +
-            '</div>' +
-            '<h3 class="font-heading font-bold text-fg text-lg mb-2">Excluir Morador</h3>' +
-            '<p class="text-fg-dim">Tem certeza que deseja excluir permanentemente o morador <strong>' + r.name + '</strong>?</p>' +
-        '</div>' +
-        '<div class="p-6 border-t border-border flex items-center justify-center gap-3">' +
-            '<button class="btn-secondary" onclick="closeModal()">Cancelar</button>' +
-            '<button class="btn-danger" style="padding:10px 22px" onclick="doDelR(\'' + id + '\')">' +
-                '<i class="fa-solid fa-trash"></i> Confirmar Exclusão' +
-            '</button>' +
-        '</div>'
-    );
+    openModal('<div class="p-6 border-b border-border"><div class="flex items-center gap-4"><div class="w-14 h-14 rounded-2xl bg-accent-glow border border-accent/20 flex items-center justify-center text-accent text-lg font-bold font-heading">' + initials + '</div><div class="flex-1"><h3 class="font-heading font-bold text-fg text-lg">' + r.name + '</h3><p class="text-muted text-sm">Apto ' + r.apartment + '</p></div><a href="https://wa.me/55' + r.whatsapp.replace(/\D/g, '') + '" target="_blank" class="btn-icon" style="color:#25d366;border-color:rgba(37,211,102,.3)"><i class="fa-brands fa-whatsapp text-lg"></i></a></div></div><div class="p-6 space-y-5"><div><h4 class="form-label mb-2">Contato</h4><p class="text-fg"><i class="fa-brands fa-whatsapp text-[#25d366]"></i> ' + formatPhone(r.whatsapp) + '</p></div><div><h4 class="form-label mb-2">Veiculos (' + (r.vehicles || []).length + ')</h4>' + ((r.vehicles || []).length === 0 ? '<p class="text-muted text-sm">Nenhum</p>' : '<div class="flex flex-col gap-2">' + (r.vehicles || []).map(function(v) { return '<div class="tag" style="padding:10px 14px"><i class="fa-solid ' + (v.type === 'Moto' ? 'fa-motorcycle' : 'fa-car') + ' text-accent text-xs"></i><span class="text-fg font-medium">' + v.brand + '</span><span class="text-muted">|</span><span class="text-accent font-heading font-bold">' + v.plate + '</span></div>' }).join('') + '</div>') + '</div><div><h4 class="form-label mb-2">Visitantes (' + (r.visitors || []).length + ')</h4>' + ((r.visitors || []).length === 0 ? '<p class="text-muted text-sm">Nenhum</p>' : '<div class="flex flex-col gap-2">' + (r.visitors || []).map(function(v) { return '<div class="tag" style="padding:10px 14px"><i class="fa-solid fa-user text-fg-dim text-xs"></i><span class="text-fg font-medium">' + v.name + '</span><span class="text-muted">-</span><span class="text-fg-dim text-xs">' + v.relation + '</span></div>' }).join('') + '</div>') + '</div><div><h4 class="form-label mb-2">Prestadores (' + pv.length + ')</h4>' + (pv.length === 0 ? '<p class="text-muted text-sm">Nenhum</p>' : '<div class="flex flex-col gap-2">' + pv.map(function(p) { return '<div class="tag" style="padding:10px 14px"><i class="fa-solid fa-id-card-clip text-sky-400 text-xs"></i><span class="text-fg font-medium">' + p.name + '</span><span class="text-muted">-</span><span class="text-fg-dim text-xs">' + p.serviceType + '</span></div>' }).join('') + '</div>') + '</div><div><h4 class="form-label mb-2">Encomendas (' + pk.length + ')</h4>' + (pk.length === 0 ? '<p class="text-muted text-sm">Nenhuma</p>' : '<div class="flex flex-col gap-2">' + pk.slice(0, 6).map(function(p) { return '<div class="flex items-center justify-between py-2 px-3 rounded-lg bg-bg/50 gap-3"><div class="flex items-center gap-3 min-w-0">' + (p.photoUrl ? '<img src="' + p.photoUrl + '" class="w-7 h-7 rounded object-cover shrink-0">' : '') + '<span class="font-heading font-bold text-accent text-sm shrink-0">' + p.code + '</span><span class="text-fg-dim text-sm truncate">' + p.description + '</span></div><div class="flex items-center gap-2 shrink-0">' + (p.status === 'pending' ? '<span class="badge badge-pending text-[11px]">Pendente</span>' : '<span class="badge badge-delivered text-[11px]">Entregue</span>') + '</div></div>' }).join('') + '</div>') + '</div></div><div class="p-6 border-t border-border flex items-center justify-between"><button class="btn-danger" onclick="confirmDelR(\'' + r.id + '\')"><i class="fa-solid fa-trash"></i> Excluir</button><div class="flex gap-3"><button class="btn-secondary" onclick="closeModal()">Fechar</button><button class="btn-primary" onclick="closeModal();openResidentForm(\'' + r.id + '\')"><i class="fa-solid fa-pen"></i> Editar</button></div></div>');
 }
 
 async function doDelR(id) {
-    // Realiza a exclusão no banco e limpa as referências relacionadas
-    await DB.deleteR(id);
-    state.providers = state.providers.filter(function(x) { return x.residentId !== id });
-    state.packages = state.packages.filter(function(x) { return x.residentId !== id });
-    
-    // Atualiza o local storage e a interface
-    DB._saveLocal(); 
-    closeModal(); 
-    showToast('Morador excluído com sucesso!', 'success'); 
-    renderResidents();
+    await DB.deleteR(id); state.providers = state.providers.filter(function(x) { return x.residentId !== id }); state.packages = state.packages.filter(function(x) { return x.residentId !== id }); DB._saveLocal(); closeModal(); showToast('Morador excluído', 'success'); renderResidents();
 }
 
 /* ============================================
