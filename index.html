@@ -775,6 +775,7 @@ function confirmDelPv(id) {
 async function doDelPv(id) { await DB.deletePv(id); closeModal(); showToast('Excluido', 'success'); renderProviders(); }
 
 /* ============================================
+/* ============================================
    ENCOMENDAS
    ============================================ */
 function renderPackages() {
@@ -836,10 +837,15 @@ async function registerPkg() {
     if (!desc) { showToast('Descreva a encomenda', 'error'); return }
     var r = getR(rid); if (!r) return;
     var code = genCode(), now = new Date().toISOString();
+    
     var np = { id: genId(), code: code, residentId: r.id, residentName: r.name, apartment: r.apartment, description: desc, trackingCode: tc, receivedAt: now, status: 'pending', deliveredAt: null, deliveredTo: null, photoUrl: tempPackagePhoto };
     state.packages.unshift(np); await DB.savePkg(np);
+    
     var ti = tc ? '\n* Rastreio: ' + tc : '';
-    var msg = '*PORTARIA*\n\nOla, ' + r.name.split(' ')[0] + '! 👋\n\n📦 Uma encomenda chegou:\n\n• Descricao: ' + desc + ti + '\n• Apartamento: ' + r.apartment + '\n\n🔐 *Codigo de retirada: ' + code + '*\n\nApresente na portaria para retirar.\n\nRecebida em: ' + fmtDate(now);
+    var fotoMsg = tempPackagePhoto ? '\n\n📸 Foto da encomenda:\n' + tempPackagePhoto : '';
+    
+    var msg = '*PORTARIA*\n\nOla, ' + r.name.split(' ')[0] + '! 👋\n\n📦 Uma encomenda chegou:\n\n• Descricao: ' + desc + ti + '\n• Apartamento: ' + r.apartment + '\n\n🔐 *Codigo de retirada: ' + code + '*' + fotoMsg + '\n\nApresente na portaria para retirar.\n\nRecebida em: ' + fmtDate(now);
+    
     var wa = waUrl(r.whatsapp, msg);
     document.getElementById('modalContent').innerHTML =
         '<div class="p-8 text-center"><div class="w-16 h-16 rounded-full bg-green-500/10 flex items-center justify-center mx-auto mb-5"><i class="fa-solid fa-circle-check text-success text-3xl"></i></div><h3 class="font-heading font-bold text-fg text-xl mb-2">Registrada</h3><p class="text-fg-dim mb-4"><strong class="text-fg">' + r.name + '</strong> - Apto ' + r.apartment + '</p>' + (tempPackagePhoto ? '<img src="' + tempPackagePhoto + '" class="w-28 h-28 object-cover rounded-xl mx-auto mb-4 border border-border">' : '') + '<div class="code-display code-pulse mb-4">' + code + '</div><p class="text-muted text-sm mb-6">Codigo de retirada</p><div class="flex flex-col gap-3 max-w-xs mx-auto"><a href="' + wa + '" target="_blank" class="btn-whatsapp w-full justify-center"><i class="fa-brands fa-whatsapp text-lg"></i> Enviar WhatsApp</a><button class="btn-secondary w-full justify-center" onclick="navigator.clipboard.writeText(\'' + code + '\').then(function(){showToast(\'Copiado\',\'success\')})"><i class="fa-solid fa-copy"></i> Copiar</button></div></div><div class="p-6 border-t border-border flex items-center justify-center"><button class="btn-secondary" onclick="closeModal();renderPackages()">Fechar</button></div>';
@@ -848,7 +854,8 @@ async function registerPkg() {
 function resendN(id) {
     var p = state.packages.find(function(x) { return x.id === id }); if (!p) return;
     var r = getR(p.residentId); if (!r) return;
-    window.open(waUrl(r.whatsapp, '*PORTARIA*\n\nLembrete: encomenda aguardando:\n\n• ' + p.description + '\n• Apto ' + p.apartment + '\n\n🔐 Codigo: ' + p.code), '_blank');
+    var fotoMsg = p.photoUrl ? '\n\n📸 Foto: ' + p.photoUrl : '';
+    window.open(waUrl(r.whatsapp, '*PORTARIA*\n\nLembrete: encomenda aguardando:\n\n• ' + p.description + '\n• Apto ' + p.apartment + '\n\n🔐 Codigo: ' + p.code + fotoMsg), '_blank');
     showToast('WhatsApp aberto', 'success');
 }
 function openDeliver(pkgId) {
