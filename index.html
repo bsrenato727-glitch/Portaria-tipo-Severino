@@ -675,6 +675,7 @@ async function doDelR(id) {
 }
 
 /* ============================================
+   /* ============================================
    PRESTADORES
    ============================================ */
 function renderProviders() {
@@ -683,22 +684,57 @@ function renderProviders() {
         var q = providerSearchQuery.toLowerCase();
         list = list.filter(function(p) { return p.name.toLowerCase().includes(q) || p.company.toLowerCase().includes(q) || p.apartment.toLowerCase().includes(q) });
     }
-    document.getElementById('section-prestadores').innerHTML =
+
+    var section = document.getElementById('section-prestadores');
+    var currentFocus = (document.activeElement && document.activeElement.id === 'searchProviderInput');
+
+    section.innerHTML =
         '<div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">' +
-            '<div class="flex-1 w-full sm:max-w-xs"><input type="text" class="form-input" placeholder="Buscar prestador..." value="' + providerSearchQuery + '" oninput="providerSearchQuery=this.value;renderProviders()"></div>' +
+            '<div class="flex-1 w-full sm:max-w-xs">' +
+                '<input type="text" id="searchProviderInput" class="form-input" placeholder="Buscar prestador..." value="' + (providerSearchQuery || '') + '" oninput="filterProvidersOnly(this.value)">' +
+            '</div>' +
             '<button class="btn-primary" onclick="openProviderForm()"><i class="fa-solid fa-plus"></i> Novo Prestador</button>' +
         '</div>' +
-        (list.length === 0 ? '<div class="data-card p-12 text-center"><i class="fa-solid fa-id-card-clip text-4xl text-muted mb-4"></i><p class="text-fg font-heading font-bold text-lg">Nenhum prestador</p></div>' :
-        '<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">' +
-        list.map(function(pv) {
-            return '<div class="data-card p-5"><div class="flex items-center gap-4 mb-3"><div class="w-12 h-12 rounded-xl bg-sky-500/10 flex items-center justify-center"><i class="fa-solid fa-id-card-clip text-sky-400"></i></div><div class="flex-1 min-w-0"><p class="text-fg font-heading font-bold truncate">' + pv.name + '</p><p class="text-muted text-sm">' + pv.serviceType + (pv.company ? ' - ' + pv.company : '') + '</p></div></div>' +
-                '<div class="text-sm text-muted mb-2"><i class="fa-solid fa-building"></i> Apto ' + pv.apartment + '</div>' +
-                (pv.docNumber ? '<div class="text-xs text-fg-dim mb-2"><i class="fa-solid fa-file"></i> ' + pv.docType + ': ' + pv.docNumber + '</div>' : '') +
-                (pv.phone ? '<div class="text-sm text-muted"><i class="fa-brands fa-whatsapp text-[#25d366]"></i> ' + formatPhone(pv.phone) + '</div>' : '') +
-                (pv.photos && pv.photos.length > 0 ? '<div class="photo-grid mt-3">' + pv.photos.map(function(ph, idx) { return '<div class="photo-grid-item"><img src="' + ph + '"><div class="photo-label">' + (idx === 0 ? 'Doc' : 'Foto ' + (idx + 1)) + '</div></div>' }).join('') + '</div>' : '') +
-                '<div class="flex items-center gap-2 mt-3 pt-3 border-t border-border"><button class="btn-icon flex-1" title="Ver morador" onclick="openResidentDetail(\'' + pv.residentId + '\')"><i class="fa-solid fa-building-user"></i></button><button class="btn-icon flex-1" title="Editar" onclick="openProviderForm(\'' + pv.id + '\')"><i class="fa-solid fa-pen"></i></button><button class="btn-icon flex-1" style="color:#ef4444;border-color:rgba(239,68,68,.2)" title="Excluir" onclick="confirmDelPv(\'' + pv.id + '\')"><i class="fa-solid fa-trash"></i></button></div></div>';
-        }).join('') + '</div>');
+        '<div id="providersGrid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">' +
+            (list.length === 0 ? '<div class="data-card p-12 text-center col-span-full"><i class="fa-solid fa-id-card-clip text-4xl text-muted mb-4"></i><p class="text-fg font-heading font-bold text-lg">Nenhum prestador</p></div>' :
+            list.map(function(pv) {
+                return renderProviderCardHtml(pv);
+            }).join('')) + '</div>';
+
+    if (currentFocus) {
+        var input = document.getElementById('searchProviderInput');
+        input.focus();
+        input.selectionStart = input.selectionEnd = input.value.length;
+    }
 }
+
+// Função para atualizar apenas a lista sem fechar o teclado
+function filterProvidersOnly(val) {
+    providerSearchQuery = val;
+    var q = val.toLowerCase();
+    var list = state.providers.filter(function(p) { 
+        return p.name.toLowerCase().includes(q) || p.company.toLowerCase().includes(q) || p.apartment.toLowerCase().includes(q);
+    });
+    
+    var grid = document.getElementById('providersGrid');
+    if (grid) {
+        grid.innerHTML = list.length === 0 ? '<div class="data-card p-12 text-center col-span-full">Nenhum resultado</div>' :
+        list.map(function(pv) {
+            return renderProviderCardHtml(pv);
+        }).join('');
+    }
+}
+
+// Função auxiliar para gerar o HTML do card (usada nas duas funções acima)
+function renderProviderCardHtml(pv) {
+    return '<div class="data-card p-5"><div class="flex items-center gap-4 mb-3"><div class="w-12 h-12 rounded-xl bg-sky-500/10 flex items-center justify-center"><i class="fa-solid fa-id-card-clip text-sky-400"></i></div><div class="flex-1 min-w-0"><p class="text-fg font-heading font-bold truncate">' + pv.name + '</p><p class="text-muted text-sm">' + pv.serviceType + (pv.company ? ' - ' + pv.company : '') + '</p></div></div>' +
+        '<div class="text-sm text-muted mb-2"><i class="fa-solid fa-building"></i> Apto ' + pv.apartment + '</div>' +
+        (pv.docNumber ? '<div class="text-xs text-fg-dim mb-2"><i class="fa-solid fa-file"></i> ' + pv.docType + ': ' + pv.docNumber + '</div>' : '') +
+        (pv.phone ? '<div class="text-sm text-muted"><i class="fa-brands fa-whatsapp text-[#25d366]"></i> ' + formatPhone(pv.phone) + '</div>' : '') +
+        (pv.photos && pv.photos.length > 0 ? '<div class="photo-grid mt-3">' + pv.photos.map(function(ph, idx) { return '<div class="photo-grid-item"><img src="' + ph + '"><div class="photo-label">' + (idx === 0 ? 'Doc' : 'Foto ' + (idx + 1)) + '</div></div>' }).join('') + '</div>' : '') +
+        '<div class="flex items-center gap-2 mt-3 pt-3 border-t border-border"><button class="btn-icon flex-1" title="Ver morador" onclick="openResidentDetail(\'' + pv.residentId + '\')"><i class="fa-solid fa-building-user"></i></button><button class="btn-icon flex-1" title="Editar" onclick="openProviderForm(\'' + pv.id + '\')"><i class="fa-solid fa-pen"></i></button><button class="btn-icon flex-1" style="color:#ef4444;border-color:rgba(239,68,68,.2)" title="Excluir" onclick="confirmDelPv(\'' + pv.id + '\')"><i class="fa-solid fa-trash"></i></button></div></div>';
+}
+
 function openProviderForm(editId) {
     if (!state.residents.length) { showToast('Cadastre um morador primeiro', 'warning'); return }
     var pv = editId ? state.providers.find(function(x) { return x.id === editId }) : null;
@@ -717,15 +753,19 @@ function openProviderForm(editId) {
         '<div class="p-6 border-t border-border flex items-center justify-end gap-3"><button class="btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn-primary" onclick="saveProvider(\'' + (editId || '') + '\')"><i class="fa-solid fa-check"></i> Salvar</button></div>'
     );
 }
+
 async function handlePvPh(file) {
     if (!file) return;
     try { var url = await uploadPhotoToImgBB(file, 'pv'); tempProviderPhotos.push(url); renderPvPhotos(); showToast('Foto adicionada', 'success'); } catch (e) { showToast('Erro na foto', 'error') }
 }
+
 function removePvPhoto(i) { tempProviderPhotos.splice(i, 1); renderPvPhotos(); }
+
 function renderPvPhotos() {
     var g = document.getElementById('pvPhotosGrid'); if (!g) return;
     g.innerHTML = tempProviderPhotos.map(function(ph, i) { return '<div class="photo-grid-item"><img src="' + ph + '"><div class="photo-label">Foto ' + (i + 1) + '</div><button class="photo-remove" onclick="removePvPhoto(' + i + ')"><i class="fa-solid fa-xmark"></i></button></div>' }).join('');
 }
+
 async function saveProvider(editId) {
     var rid = document.getElementById('pvRid').value;
     var name = document.getElementById('pvName').value.trim();
@@ -744,10 +784,12 @@ async function saveProvider(editId) {
     }
     closeModal(); showToast('Prestador salvo', 'success'); renderProviders();
 }
+
 function confirmDelPv(id) {
     var pv = state.providers.find(function(x) { return x.id === id }); if (!pv) return;
     openModal('<div class="p-6 text-center"><div class="w-16 h-16 rounded-full bg-danger/10 flex items-center justify-center mx-auto mb-4"><i class="fa-solid fa-triangle-exclamation text-danger text-2xl"></i></div><h3 class="font-heading font-bold text-fg text-lg mb-2">Excluir Prestador</h3><p class="text-fg-dim">Excluir <strong class="text-fg">' + pv.name + '</strong>?</p></div><div class="p-6 border-t border-border flex items-center justify-center gap-3"><button class="btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn-danger" style="padding:10px 22px" onclick="doDelPv(\'' + id + '\')"><i class="fa-solid fa-trash"></i> Excluir</button></div>');
 }
+
 async function doDelPv(id) { await DB.deletePv(id); closeModal(); showToast('Excluido', 'success'); renderProviders(); }
 
 /* ============================================
