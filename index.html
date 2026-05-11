@@ -676,7 +676,8 @@ async function doDelR(id) {
 
 /* ============================================
    /* ============================================
-   PRESTADORES
+   /* ============================================
+   PRESTADORES (COMPLETO)
    ============================================ */
 function renderProviders() {
     var list = state.providers;
@@ -693,7 +694,7 @@ function renderProviders() {
             '<div class="flex-1 w-full sm:max-w-xs">' +
                 '<input type="text" id="searchProviderInput" class="form-input" placeholder="Buscar prestador..." value="' + (providerSearchQuery || '') + '" oninput="filterProvidersOnly(this.value)">' +
             '</div>' +
-            '<button class="btn-primary" onclick="openProviderForm()"><i class="fa-solid fa-plus"></i> Novo Prestador</button>' +
+            '<button class="btn-primary" onclick="openProviderForm()"><i class="fa-solid fa-plus"></i> Novo Cadastro</button>' +
         '</div>' +
         '<div id="providersGrid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">' +
             (list.length === 0 ? '<div class="data-card p-12 text-center col-span-full"><i class="fa-solid fa-id-card-clip text-4xl text-muted mb-4"></i><p class="text-fg font-heading font-bold text-lg">Nenhum prestador</p></div>' :
@@ -708,49 +709,128 @@ function renderProviders() {
     }
 }
 
-// Função para atualizar apenas a lista sem fechar o teclado
 function filterProvidersOnly(val) {
     providerSearchQuery = val;
     var q = val.toLowerCase();
     var list = state.providers.filter(function(p) { 
         return p.name.toLowerCase().includes(q) || p.company.toLowerCase().includes(q) || p.apartment.toLowerCase().includes(q);
     });
-    
     var grid = document.getElementById('providersGrid');
     if (grid) {
         grid.innerHTML = list.length === 0 ? '<div class="data-card p-12 text-center col-span-full">Nenhum resultado</div>' :
-        list.map(function(pv) {
-            return renderProviderCardHtml(pv);
-        }).join('');
+        list.map(function(pv) { return renderProviderCardHtml(pv); }).join('');
     }
 }
 
-// Função auxiliar para gerar o HTML do card (usada nas duas funções acima)
 function renderProviderCardHtml(pv) {
-    return '<div class="data-card p-5"><div class="flex items-center gap-4 mb-3"><div class="w-12 h-12 rounded-xl bg-sky-500/10 flex items-center justify-center"><i class="fa-solid fa-id-card-clip text-sky-400"></i></div><div class="flex-1 min-w-0"><p class="text-fg font-heading font-bold truncate">' + pv.name + '</p><p class="text-muted text-sm">' + pv.serviceType + (pv.company ? ' - ' + pv.company : '') + '</p></div></div>' +
-        '<div class="text-sm text-muted mb-2"><i class="fa-solid fa-building"></i> Apto ' + pv.apartment + '</div>' +
-        (pv.docNumber ? '<div class="text-xs text-fg-dim mb-2"><i class="fa-solid fa-file"></i> ' + pv.docType + ': ' + pv.docNumber + '</div>' : '') +
+    var lastLog = (pv.accessLog && pv.accessLog.length > 0) ? pv.accessLog[0] : null;
+    var isInside = lastLog && !lastLog.exitTime;
+    
+    return '<div class="data-card p-5 cursor-pointer hover:border-accent/40" onclick="openProviderAccess(\'' + pv.id + '\')">' +
+        '<div class="flex items-center gap-4 mb-3">' +
+            '<div class="w-12 h-12 rounded-xl bg-sky-500/10 flex items-center justify-center">' +
+                '<i class="fa-solid fa-id-card-clip text-sky-400"></i>' +
+            '</div>' +
+            '<div class="flex-1 min-w-0">' +
+                '<div class="flex items-center justify-between"><p class="text-fg font-heading font-bold truncate">' + pv.name + '</p>' + 
+                (isInside ? '<span class="badge badge-pending !text-[10px] animate-pulse">EM SERVIÇO</span>' : '') + '</div>' +
+                '<p class="text-muted text-sm">' + pv.serviceType + (pv.company ? ' - ' + pv.company : '') + '</p>' +
+            '</div>' +
+        '</div>' +
+        '<div class="text-sm text-fg-dim mb-2"><i class="fa-solid fa-building text-accent/60"></i> Frequenta Apto: ' + pv.apartment + '</div>' +
         (pv.phone ? '<div class="text-sm text-muted"><i class="fa-brands fa-whatsapp text-[#25d366]"></i> ' + formatPhone(pv.phone) + '</div>' : '') +
-        (pv.photos && pv.photos.length > 0 ? '<div class="photo-grid mt-3">' + pv.photos.map(function(ph, idx) { return '<div class="photo-grid-item"><img src="' + ph + '"><div class="photo-label">' + (idx === 0 ? 'Doc' : 'Foto ' + (idx + 1)) + '</div></div>' }).join('') + '</div>' : '') +
-        '<div class="flex items-center gap-2 mt-3 pt-3 border-t border-border"><button class="btn-icon flex-1" title="Ver morador" onclick="openResidentDetail(\'' + pv.residentId + '\')"><i class="fa-solid fa-building-user"></i></button><button class="btn-icon flex-1" title="Editar" onclick="openProviderForm(\'' + pv.id + '\')"><i class="fa-solid fa-pen"></i></button><button class="btn-icon flex-1" style="color:#ef4444;border-color:rgba(239,68,68,.2)" title="Excluir" onclick="confirmDelPv(\'' + pv.id + '\')"><i class="fa-solid fa-trash"></i></button></div></div>';
+        '<div class="flex items-center gap-2 mt-3 pt-3 border-t border-border">' +
+            '<button class="btn-icon flex-1" title="Editar Cadastro" onclick="event.stopPropagation();openProviderForm(\'' + pv.id + '\')"><i class="fa-solid fa-pen"></i></button>' +
+            '<button class="btn-icon flex-1" style="color:#ef4444;border-color:rgba(239,68,68,.2)" title="Excluir" onclick="event.stopPropagation();confirmDelPv(\'' + pv.id + '\')"><i class="fa-solid fa-trash"></i></button>' +
+        '</div></div>';
+}
+
+function openProviderAccess(id, limit) {
+    var pv = state.providers.find(function(x) { return x.id === id });
+    if (!pv) return;
+    if (!pv.accessLog) pv.accessLog = [];
+
+    var currentLimit = limit || 50;
+    var totalLogs = pv.accessLog.length;
+    var logsToDisplay = pv.accessLog.slice(0, currentLimit);
+
+    var lastLog = pv.accessLog[0];
+    var isInside = lastLog && !lastLog.exitTime;
+
+    var logHtml = logsToDisplay.map(function(log) {
+        return '<div class="flex items-center justify-between p-3 rounded-lg bg-bg/50 border border-border mb-2">' +
+            '<div><p class="text-sm font-bold text-fg">Apto ' + log.apartment + '</p>' +
+            '<p class="text-[11px] text-muted">Entrada: ' + fmtDate(log.entryTime) + '</p></div>' +
+            '<div class="text-right">' + (log.exitTime ? '<p class="text-[11px] text-success font-medium">Saída: ' + fmtDate(log.exitTime) + '</p>' : 
+            '<button class="btn-primary !py-1 !px-3 text-xs" onclick="registerExit(\''+pv.id+'\', \''+log.id+'\')">Registrar Saída</button>') + '</div>' +
+        '</div>';
+    }).join('');
+
+    var loadMoreBtn = (totalLogs > currentLimit) ? 
+        '<button class="w-full py-3 mt-2 text-accent font-bold text-sm border border-dashed border-accent/30 rounded-lg hover:bg-accent/5" onclick="openProviderAccess(\''+id+'\', '+(currentLimit + 50)+')">' +
+        '<i class="fa-solid fa-plus"></i> Ver mais (Exibindo ' + currentLimit + ' de ' + totalLogs + ')</button>' : '';
+
+    openModal(
+        '<div class="p-6 border-b border-border"><h3 class="font-heading font-bold text-fg text-lg">Acesso: ' + pv.name + '</h3></div>' +
+        '<div class="p-6 space-y-4">' +
+            (isInside ? 
+                '<div class="p-4 rounded-xl bg-warning/10 border border-warning/20 text-center"><p class="text-warning font-bold text-sm">O prestador está DENTRO no Apto ' + lastLog.apartment + '</p></div>' : 
+                '<div class="bg-bg p-4 rounded-xl border border-border"> ' +
+                    '<label class="form-label">Registrar Nova Entrada (Apto)</label>' +
+                    '<div class="flex gap-2"><input type="text" id="accessApt" class="form-input flex-1" value="' + pv.apartment + '">' +
+                    '<button class="btn-primary" onclick="registerEntry(\''+pv.id+'\')">Dar Entrada</button></div>' +
+                '</div>'
+            ) +
+            '<div><h4 class="form-label mb-3">Histórico (' + totalLogs + ')</h4>' + 
+            '<div class="max-h-80 overflow-y-auto pr-1">' + (logHtml || '<p class="text-muted text-center text-sm py-4">Nenhum registro.</p>') + loadMoreBtn + '</div></div>' +
+        '</div>' +
+        '<div class="p-6 border-t border-border flex justify-end"><button class="btn-secondary" onclick="closeModal()">Fechar</button></div>'
+    );
+}
+
+async function registerEntry(pvId) {
+    var apt = document.getElementById('accessApt').value.trim();
+    if (!apt) { showToast('Informe o apto', 'error'); return; }
+    var pv = state.providers.find(function(x) { return x.id === pvId });
+    if (!pv) return;
+    if (!pv.accessLog) pv.accessLog = [];
+    var newLog = { id: genId(), apartment: apt, entryTime: new Date().toISOString(), exitTime: null };
+    pv.accessLog.unshift(newLog);
+    await DB.savePv(pv);
+    showToast('Entrada registrada!', 'success');
+    openProviderAccess(pvId);
+    renderProviders();
+}
+
+async function registerExit(pvId, logId) {
+    var pv = state.providers.find(function(x) { return x.id === pvId });
+    if (!pv) return;
+    var log = pv.accessLog.find(function(l) { return l.id === logId });
+    if (log) {
+        log.exitTime = new Date().toISOString();
+        await DB.savePv(pv);
+        showToast('Saída registrada!', 'success');
+        openProviderAccess(pvId);
+        renderProviders();
+    }
 }
 
 function openProviderForm(editId) {
     if (!state.residents.length) { showToast('Cadastre um morador primeiro', 'warning'); return }
     var pv = editId ? state.providers.find(function(x) { return x.id === editId }) : null;
-    var title = pv ? 'Editar Prestador' : 'Novo Prestador';
+    var title = pv ? 'Editar Cadastro' : 'Novo Cadastro';
     tempProviderPhotos = pv ? (pv.photos || []).slice() : [];
     var opts = state.residents.map(function(r) { return '<option value="' + r.id + '"' + (pv && pv.residentId === r.id ? ' selected' : '') + '>' + r.name + ' - Apto ' + r.apartment + '</option>' }).join('');
     openModal(
         '<div class="p-6 border-b border-border"><h3 class="font-heading font-bold text-fg text-lg">' + title + '</h3></div>' +
         '<div class="p-6 space-y-4">' +
-            '<div><label class="form-label">Morador</label><select class="form-input form-select" id="pvRid"><option value="">Selecione...</option>' + opts + '</select></div>' +
-            '<div class="grid grid-cols-2 gap-4"><div><label class="form-label">Nome do Prestador</label><input type="text" class="form-input" id="pvName" value="' + (pv ? pv.name : '') + '"></div><div><label class="form-label">Tipo de Servico</label><input type="text" class="form-input" id="pvService" placeholder="Eletricista..." value="' + (pv ? pv.serviceType : '') + '"></div></div>' +
+            '<div><label class="form-label">Morador de Referência</label><select class="form-input form-select" id="pvRid"><option value="">Selecione...</option>' + opts + '</select></div>' +
+            '<div class="grid grid-cols-2 gap-4"><div><label class="form-label">Nome</label><input type="text" class="form-input" id="pvName" value="' + (pv ? pv.name : '') + '"></div><div><label class="form-label">Tipo Servico</label><input type="text" class="form-input" id="pvService" placeholder="Ex: Pintor" value="' + (pv ? pv.serviceType : '') + '"></div></div>' +
             '<div class="grid grid-cols-2 gap-4"><div><label class="form-label">Empresa</label><input type="text" class="form-input" id="pvCompany" value="' + (pv ? pv.company : '') + '"></div><div><label class="form-label">Telefone</label><input type="text" class="form-input" id="pvPhone" value="' + (pv ? pv.phone : '') + '"></div></div>' +
-            '<div class="grid grid-cols-2 gap-4"><div><label class="form-label">Tipo Documento</label><select class="form-input form-select" id="pvDocType"><option value="RG"' + (pv && pv.docType === 'RG' ? ' selected' : '') + '>RG</option><option value="CPF"' + (pv && pv.docType === 'CPF' ? ' selected' : '') + '>CPF</option><option value="CNH"' + (pv && pv.docType === 'CNH' ? ' selected' : '') + '>CNH</option><option value="CRECI"' + (pv && pv.docType === 'CRECI' ? ' selected' : '') + '>CRECI</option><option value="Outro"' + (pv && pv.docType === 'Outro' ? ' selected' : '') + '>Outro</option></select></div><div><label class="form-label">Numero do Documento</label><input type="text" class="form-input" id="pvDocNum" value="' + (pv ? pv.docNumber : '') + '"></div></div>' +
-            '<div><label class="form-label">Fotos (documento, selfie)</label><div class="photo-grid" id="pvPhotosGrid">' + tempProviderPhotos.map(function(ph, i) { return '<div class="photo-grid-item"><img src="' + ph + '"><div class="photo-label">Foto ' + (i + 1) + '</div><button class="photo-remove" onclick="removePvPhoto(' + i + ')"><i class="fa-solid fa-xmark"></i></button></div>' }).join('') + '</div><div class="photo-upload mt-2" id="pvPhArea" onclick="document.getElementById(\'pvPhFile\').click()"><input type="file" id="pvPhFile" accept="image/*" capture="environment" style="display:none" onchange="handlePvPh(this.files[0])"><i class="fa-solid fa-camera text-2xl text-muted mb-2"></i><p class="text-fg-dim text-sm">Adicionar foto</p></div></div>' +
+            '<div class="grid grid-cols-2 gap-4"><div><label class="form-label">Doc Tipo</label><select class="form-input form-select" id="pvDocType"><option value="RG"' + (pv && pv.docType === 'RG' ? ' selected' : '') + '>RG</option><option value="CPF"' + (pv && pv.docType === 'CPF' ? ' selected' : '') + '>CPF</option><option value="CNH"' + (pv && pv.docType === 'CNH' ? ' selected' : '') + '>CNH</option><option value="Outro"' + (pv && pv.docType === 'Outro' ? ' selected' : '') + '>Outro</option></select></div><div><label class="form-label">Documento Nº</label><input type="text" class="form-input" id="pvDocNum" value="' + (pv ? pv.docNumber : '') + '"></div></div>' +
+            '<div><label class="form-label">Fotos de Identificação</label><div class="photo-grid" id="pvPhotosGrid">' + tempProviderPhotos.map(function(ph, i) { return '<div class="photo-grid-item"><img src="' + ph + '"><button class="photo-remove" onclick="removePvPhoto(' + i + ')"><i class="fa-solid fa-xmark"></i></button></div>' }).join('') + '</div><div class="photo-upload mt-2" id="pvPhArea" onclick="document.getElementById(\'pvPhFile\').click()"><input type="file" id="pvPhFile" accept="image/*" capture="environment" style="display:none" onchange="handlePvPh(this.files[0])"><i class="fa-solid fa-camera text-2xl text-muted mb-2"></i><p class="text-fg-dim text-sm">Adicionar foto</p></div></div>' +
         '</div>' +
-        '<div class="p-6 border-t border-border flex items-center justify-end gap-3"><button class="btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn-primary" onclick="saveProvider(\'' + (editId || '') + '\')"><i class="fa-solid fa-check"></i> Salvar</button></div>'
+        '<div class="p-6 border-t border-border flex items-center justify-end gap-3"><button class="btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn-primary" onclick="saveProvider(\'' + (editId || '') + '\')"><i class="fa-solid fa-check"></i> Salvar Cadastro</button></div>'
     );
 }
 
@@ -758,39 +838,37 @@ async function handlePvPh(file) {
     if (!file) return;
     try { var url = await uploadPhotoToImgBB(file, 'pv'); tempProviderPhotos.push(url); renderPvPhotos(); showToast('Foto adicionada', 'success'); } catch (e) { showToast('Erro na foto', 'error') }
 }
-
 function removePvPhoto(i) { tempProviderPhotos.splice(i, 1); renderPvPhotos(); }
-
 function renderPvPhotos() {
     var g = document.getElementById('pvPhotosGrid'); if (!g) return;
-    g.innerHTML = tempProviderPhotos.map(function(ph, i) { return '<div class="photo-grid-item"><img src="' + ph + '"><div class="photo-label">Foto ' + (i + 1) + '</div><button class="photo-remove" onclick="removePvPhoto(' + i + ')"><i class="fa-solid fa-xmark"></i></button></div>' }).join('');
+    g.innerHTML = tempProviderPhotos.map(function(ph, i) { return '<div class="photo-grid-item"><img src="' + ph + '"><button class="photo-remove" onclick="removePvPhoto(' + i + ')"><i class="fa-solid fa-xmark"></i></button></div>' }).join('');
 }
 
 async function saveProvider(editId) {
     var rid = document.getElementById('pvRid').value;
     var name = document.getElementById('pvName').value.trim();
-    var service = document.getElementById('pvService').value.trim();
-    if (!rid) { showToast('Selecione o morador', 'error'); return }
-    if (!name) { showToast('Informe o nome', 'error'); return }
+    if (!rid || !name) { showToast('Preencha os campos obrigatórios', 'error'); return }
     var r = getR(rid);
-    var data = { residentId: rid, apartment: r ? r.apartment : '', name: name, serviceType: service, company: document.getElementById('pvCompany').value.trim(), phone: document.getElementById('pvPhone').value.replace(/\D/g, ''), docType: document.getElementById('pvDocType').value, docNumber: document.getElementById('pvDocNum').value.trim(), photos: tempProviderPhotos.slice() };
+    var data = { residentId: rid, apartment: r ? r.apartment : '', name: name, serviceType: document.getElementById('pvService').value.trim(), company: document.getElementById('pvCompany').value.trim(), phone: document.getElementById('pvPhone').value.replace(/\D/g, ''), docType: document.getElementById('pvDocType').value, docNumber: document.getElementById('pvDocNum').value.trim(), photos: tempProviderPhotos.slice() };
+    
     if (editId) {
         var pv = state.providers.find(function(x) { return x.id === editId });
         if (pv) Object.assign(pv, data);
         await DB.savePv(pv);
     } else {
-        data.id = genId(); data.createdAt = new Date().toISOString();
+        data.id = genId(); data.createdAt = new Date().toISOString(); data.accessLog = [];
         state.providers.push(data); await DB.savePv(data);
     }
-    closeModal(); showToast('Prestador salvo', 'success'); renderProviders();
+    closeModal(); showToast('Cadastro salvo', 'success'); renderProviders();
 }
 
 function confirmDelPv(id) {
     var pv = state.providers.find(function(x) { return x.id === id }); if (!pv) return;
-    openModal('<div class="p-6 text-center"><div class="w-16 h-16 rounded-full bg-danger/10 flex items-center justify-center mx-auto mb-4"><i class="fa-solid fa-triangle-exclamation text-danger text-2xl"></i></div><h3 class="font-heading font-bold text-fg text-lg mb-2">Excluir Prestador</h3><p class="text-fg-dim">Excluir <strong class="text-fg">' + pv.name + '</strong>?</p></div><div class="p-6 border-t border-border flex items-center justify-center gap-3"><button class="btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn-danger" style="padding:10px 22px" onclick="doDelPv(\'' + id + '\')"><i class="fa-solid fa-trash"></i> Excluir</button></div>');
+    openModal('<div class="p-6 text-center"><div class="w-16 h-16 rounded-full bg-danger/10 flex items-center justify-center mx-auto mb-4"><i class="fa-solid fa-triangle-exclamation text-danger text-2xl"></i></div><h3 class="font-heading font-bold text-fg text-lg mb-2">Excluir Prestador</h3><p class="text-fg-dim">Excluir permanentemente o cadastro de <strong class="text-fg">' + pv.name + '</strong>?</p></div><div class="p-6 border-t border-border flex items-center justify-center gap-3"><button class="btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn-danger" style="padding:10px 22px" onclick="doDelPv(\'' + id + '\')"><i class="fa-solid fa-trash"></i> Confirmar</button></div>');
 }
 
 async function doDelPv(id) { await DB.deletePv(id); closeModal(); showToast('Excluido', 'success'); renderProviders(); }
+
 
 /* ============================================
 /* ============================================
