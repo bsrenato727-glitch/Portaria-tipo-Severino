@@ -337,7 +337,8 @@ async function uploadPhotoToImgBB(file, folder) {
 }
 
 /* ============================================
-   BANCO DE DADOS - FIRESTORE
+   /* ============================================
+   BANCO DE DADOS - FIRESTORE (VERSÃO CORRIGIDA)
    ============================================ */
 const DB = {
     async load() {
@@ -363,7 +364,20 @@ const DB = {
             });
             state.providers = results[2].docs.map(function(d) {
                 var data = d.data();
-                return { id: d.id, residentId: data.residentId || '', apartment: data.apartment || '', name: data.name || '', serviceType: data.serviceType || '', company: data.company || '', phone: data.phone || '', docType: data.docType || '', docNumber: data.docNumber || '', photos: Array.isArray(data.photos) ? data.photos : [], createdAt: data.createdAt || '' };
+                return { 
+                    id: d.id, 
+                    residentId: data.residentId || '', 
+                    apartment: data.apartment || '', 
+                    name: data.name || '', 
+                    serviceType: data.serviceType || '', 
+                    company: data.company || '', 
+                    phone: data.phone || '', 
+                    docType: data.docType || '', 
+                    docNumber: data.docNumber || '', 
+                    photos: Array.isArray(data.photos) ? data.photos : [], 
+                    createdAt: data.createdAt || '',
+                    accessLog: Array.isArray(data.accessLog) ? data.accessLog : [] // CORREÇÃO: Puxando o histórico do Firebase
+                };
             });
             this._saveLocal();
             var imgOk = getImgbbKey() ? 'imgBB OK' : 'imgBB nao configurado';
@@ -394,7 +408,19 @@ const DB = {
     },
 
     async savePv(pv) {
-        var data = { residentId: pv.residentId, apartment: pv.apartment, name: pv.name, serviceType: pv.serviceType, company: pv.company, phone: pv.phone, docType: pv.docType, docNumber: pv.docNumber, photos: pv.photos || [], createdAt: pv.createdAt || new Date().toISOString() };
+        var data = { 
+            residentId: pv.residentId, 
+            apartment: pv.apartment, 
+            name: pv.name, 
+            serviceType: pv.serviceType, 
+            company: pv.company, 
+            phone: pv.phone, 
+            docType: pv.docType, 
+            docNumber: pv.docNumber, 
+            photos: pv.photos || [], 
+            createdAt: pv.createdAt || new Date().toISOString(),
+            accessLog: pv.accessLog || [] // CORREÇÃO: Enviando o histórico para o Firebase
+        };
         try { if (firebaseOk && db) await db.collection('providers').doc(pv.id).set(data, { merge: true }); } catch (e) { console.error('Erro savePv:', e) }
         this._saveLocal();
     },
@@ -410,7 +436,12 @@ const DB = {
             var c = {
                 residents: state.residents.map(function(r) { return Object.assign({}, r) }),
                 packages: state.packages.map(function(p) { return Object.assign({}, p, { photoUrl: isB64(p.photoUrl) ? null : p.photoUrl }) }),
-                providers: state.providers.map(function(pv) { return Object.assign({}, pv, { photos: (pv.photos || []).filter(function(ph) { return !isB64(ph) }) }) })
+                providers: state.providers.map(function(pv) { 
+                    return Object.assign({}, pv, { 
+                        photos: (pv.photos || []).filter(function(ph) { return !isB64(ph) }),
+                        accessLog: pv.accessLog || [] // CORREÇÃO: Salvando no cache local também
+                    }) 
+                })
             };
             localStorage.setItem(LOCAL_KEY, JSON.stringify(c));
         } catch (e) { console.error('Erro save local:', e) }
@@ -418,7 +449,12 @@ const DB = {
     _loadLocal() {
         try {
             var s = localStorage.getItem(LOCAL_KEY);
-            if (s) { var d = JSON.parse(s); state.residents = d.residents || []; state.packages = d.packages || []; state.providers = d.providers || [] }
+            if (s) { 
+                var d = JSON.parse(s); 
+                state.residents = d.residents || []; 
+                state.packages = d.packages || []; 
+                state.providers = d.providers || [] 
+            }
         } catch (e) { state.residents = []; state.packages = []; state.providers = [] }
     }
 };
