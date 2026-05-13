@@ -947,30 +947,95 @@ function confirmDelPv(id) {
 async function doDelPv(id) { await DB.deletePv(id); closeModal(); showToast('Excluido', 'success'); renderProviders(); }
 
 /* ============================================
-   ENCOMENDAS
+/* ============================================
+/* ============================================
+   ENCOMENDAS - CÓDIGO COMPLETO E CORRIGIDO
    ============================================ */
+
+// 1. FUNÇÕES DE FILTRO E RENDERIZAÇÃO (Interface)
+function filterPackagesByApt(val) {
+    packageFilter = val.trim() === '' ? 'all' : val.trim();
+    renderPackageListOnly();
+}
+
 function renderPackages() {
-    var f = state.packages;
-    if (packageFilter === 'pending') f = f.filter(function(p) { return p.status === 'pending' });
-    else if (packageFilter === 'delivered') f = f.filter(function(p) { return p.status === 'delivered' });
     var pendCount = state.packages.filter(function(p){return p.status==='pending'}).length;
     var delCount = state.packages.filter(function(p){return p.status==='delivered'}).length;
+    var isSearching = (packageFilter !== 'all' && packageFilter !== 'pending' && packageFilter !== 'delivered');
+
     document.getElementById('section-encomendas').innerHTML =
-        '<div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">' +
-            '<div class="flex gap-2 flex-wrap">' +
-                '<button class="btn-secondary text-sm ' + (packageFilter === 'all' ? '!bg-accent/10 !text-accent !border-accent/30' : '') + '" onclick="packageFilter=\'all\';renderPackages()">Todas (' + state.packages.length + ')</button>' +
-                '<button class="btn-secondary text-sm ' + (packageFilter === 'pending' ? '!bg-warning/10 !text-warning !border-warning/30' : '') + '" onclick="packageFilter=\'pending\';renderPackages()">Pendentes (' + pendCount + ')</button>' +
-                '<button class="btn-secondary text-sm ' + (packageFilter === 'delivered' ? '!bg-success/10 !text-success !border-success/30' : '') + '" onclick="packageFilter=\'delivered\';renderPackages()">Entregues (' + delCount + ')</button>' +
+        '<div class="flex flex-col gap-6 mb-6">' +
+            '<div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">' +
+                '<div class="flex gap-2 flex-wrap">' +
+                    '<button type="button" class="btn-secondary text-sm ' + (packageFilter === 'all' ? '!bg-accent/10 !text-accent !border-accent/30' : '') + '" onclick="packageFilter=\'all\';renderPackages()">Todas (' + state.packages.length + ')</button>' +
+                    '<button type="button" class="btn-secondary text-sm ' + (packageFilter === 'pending' ? '!bg-warning/10 !text-warning !border-warning/30' : '') + '" onclick="packageFilter=\'pending\';renderPackages()">Pendentes (' + pendCount + ')</button>' +
+                    '<button type="button" class="btn-secondary text-sm ' + (packageFilter === 'delivered' ? '!bg-success/10 !text-success !border-success/30' : '') + '" onclick="packageFilter=\'delivered\';renderPackages()">Entregues (' + delCount + ')</button>' +
+                '</div>' +
+                '<div class="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">' +
+                    '<div class="relative flex-1">' +
+                        '<i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-muted text-xs"></i>' +
+                        '<input type="text" id="pkgSearchInput" inputmode="numeric" class="form-input !pl-9 !py-2 text-sm" placeholder="Buscar Apto..." value="' + (isSearching ? packageFilter : '') + '" oninput="filterPackagesByApt(this.value)">' +
+                    '</div>' +
+                    '<button type="button" class="btn-primary" onclick="openNewPackageModal()"><i class="fa-solid fa-plus"></i> Nova Encomenda</button>' +
+                '</div>' +
             '</div>' +
-            '<button class="btn-primary" onclick="openNewPackageModal()"><i class="fa-solid fa-plus"></i> Nova Encomenda</button>' +
-        '</div>' +
-        (f.length === 0 ? '<div class="data-card p-12 text-center"><i class="fa-solid fa-box-open text-4xl text-muted mb-4"></i><p class="text-fg font-heading font-bold text-lg">Nenhuma encomenda</p></div>' :
-        '<div class="data-card"><div class="table-container"><table class="data-table"><thead><tr><th>Codigo</th><th>Morador</th><th>Apto</th><th>Rastreio</th><th>Descricao</th><th>Foto</th><th>Status</th><th class="text-right">Acoes</th></tr></thead><tbody>' +
-        f.map(function(p) {
-            return '<tr><td><span class="font-heading font-bold text-accent">' + p.code + '</span></td><td class="text-fg font-medium">' + p.residentName + '</td><td class="text-fg-dim">' + p.apartment + '</td><td>' + (p.trackingCode ? '<span class="text-fg-dim text-xs font-mono">' + p.trackingCode + '</span>' : '-') + '</td><td class="text-fg-dim max-w-[120px] truncate">' + p.description + '</td><td>' + (p.photoUrl ? '<img src="' + p.photoUrl + '" class="w-8 h-8 rounded object-cover cursor-pointer" onclick="window.open(\'' + p.photoUrl + '\',\'_blank\')">' : '-') + '</td><td>' + (p.status === 'pending' ? '<span class="badge badge-pending"><i class="fa-solid fa-clock text-[10px]"></i> Pendente</span>' : '<span class="badge badge-delivered"><i class="fa-solid fa-check text-[10px]"></i> Entregue</span>') + '</td><td><div class="flex items-center justify-end gap-1">' + (p.status === 'pending' ? '<button class="btn-icon" title="Notificar" onclick="resendN(\'' + p.id + '\')"><i class="fa-brands fa-whatsapp text-[#25d366]"></i></button><button class="btn-icon" title="Entregar" onclick="openDeliver(\'' + p.id + '\')"><i class="fa-solid fa-check text-success"></i></button>' : '<div class="text-right"><span class="text-muted text-xs block">' + (p.deliveredAt ? fmtDate(p.deliveredAt) : '') + '</span>' + (p.deliveredTo ? '<span class="text-fg-dim text-xs"><i class="fa-solid fa-user text-[10px]"></i> ' + p.deliveredTo + '</span>' : '') + '</div>') + '</div></td></tr>';
-        }).join('') +
-        '</tbody></table></div></div>');
+            '<div id="pkgListContainer"></div>' + 
+        '</div>';
+
+    renderPackageListOnly();
 }
+
+function renderPackageListOnly() {
+    var container = document.getElementById('pkgListContainer');
+    if (!container) return;
+
+    var isSearching = (packageFilter !== 'all' && packageFilter !== 'pending' && packageFilter !== 'delivered');
+    var f = state.packages;
+
+    if (isSearching) {
+        f = f.filter(function(p) { 
+            return String(p.apartment || '').toLowerCase().includes(packageFilter.toLowerCase()); 
+        });
+    } else {
+        if (packageFilter === 'pending') f = f.filter(function(p) { return p.status === 'pending' });
+        else if (packageFilter === 'delivered') f = f.filter(function(p) { return p.status === 'delivered' });
+    }
+
+    var displayList = isSearching ? f : f.slice(0, 50);
+
+    var html = '<div class="text-[11px] text-muted uppercase tracking-widest font-bold mb-4">' + 
+                (isSearching ? '🔍 Histórico Completo do Apto: ' + packageFilter : '📋 Exibindo os últimos 50 registros') + 
+               '</div>';
+
+    if (displayList.length === 0) {
+        html += '<div class="data-card p-12 text-center"><i class="fa-solid fa-box-open text-4xl text-muted mb-4"></i><p class="text-fg font-heading font-bold text-lg">Nenhuma encomenda encontrada</p></div>';
+    } else {
+        html += '<div class="data-card"><div class="table-container"><table class="data-table"><thead><tr><th>Codigo</th><th>Morador</th><th>Apto</th><th>Rastreio</th><th>Descricao</th><th>Foto</th><th>Status</th><th class="text-right">Acoes</th></tr></thead><tbody>' +
+        displayList.map(function(p) {
+            return '<tr>' +
+                '<td><span class="font-heading font-bold text-accent">' + p.code + '</span></td>' +
+                '<td class="text-fg font-medium">' + p.residentName + '</td>' +
+                '<td class="text-fg-dim">' + p.apartment + '</td>' +
+                '<td>' + (p.trackingCode ? '<span class="text-fg-dim text-xs font-mono">' + p.trackingCode + '</span>' : '-') + '</td>' +
+                '<td class="text-fg-dim max-w-[120px] truncate">' + p.description + '</td>' +
+                '<td>' + (p.photoUrl ? '<img src="' + p.photoUrl + '" class="w-8 h-8 rounded object-cover cursor-pointer" onclick="window.open(\'' + p.photoUrl + '\',\'_blank\')">' : '-') + '</td>' +
+                '<td>' + (p.status === 'pending' ? '<span class="badge badge-pending"><i class="fa-solid fa-clock text-[10px]"></i> Pendente</span>' : '<span class="badge badge-delivered"><i class="fa-solid fa-check text-[10px]"></i> Entregue</span>') + '</td>' +
+                '<td><div class="flex items-center justify-end gap-1">' + 
+                    (p.status === 'pending' ? 
+                        '<button type="button" class="btn-icon" title="Notificar" onclick="resendN(\'' + p.id + '\')"><i class="fa-brands fa-whatsapp text-[#25d366]"></i></button>' +
+                        '<button type="button" class="btn-icon" title="Entregar" onclick="openDeliver(\'' + p.id + '\')"><i class="fa-solid fa-check text-success"></i></button>' 
+                        : 
+                        '<div class="text-right"><span class="text-muted text-[10px] block">' + (p.deliveredAt ? fmtDate(p.deliveredAt) : '') + '</span>' + 
+                        (p.deliveredTo ? '<span class="text-fg-dim text-[10px]"><i class="fa-solid fa-user text-[9px]"></i> ' + p.deliveredTo + '</span>' : '') + '</div>'
+                    ) + 
+                '</div></td></tr>';
+        }).join('') +
+        '</tbody></table></div></div>';
+    }
+    container.innerHTML = html;
+}
+
+// 2. FUNÇÕES DE AÇÃO (Cadastro e Entrega)
 function openNewPackageModal(scannedCode) {
     scannedCode = scannedCode || '';
     if (!state.residents.length) { showToast('Cadastre um morador primeiro', 'warning'); return }
@@ -986,9 +1051,11 @@ function openNewPackageModal(scannedCode) {
         '<div class="p-6 border-t border-border flex items-center justify-end gap-3"><button class="btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn-primary" onclick="registerPkg()"><i class="fa-solid fa-box"></i> Registrar e Notificar</button></div>'
     );
 }
+
 function scanTc() {
     openScanner(function(code) { var i = document.getElementById('pkgTc'); if (i) i.value = code; showToast('Codigo preenchido', 'success'); }, 'Escanear Rastreio', 'Codigo da encomenda', '');
 }
+
 async function handlePkgPh(file) {
     if (!file) return;
     try {
@@ -1000,6 +1067,7 @@ async function handlePkgPh(file) {
         showToast('Foto salva', 'success');
     } catch (e) { showToast('Erro na foto', 'error') }
 }
+
 async function registerPkg() {
     var rid = document.getElementById('pkgRid').value;
     var desc = document.getElementById('pkgDesc').value.trim();
@@ -1022,6 +1090,7 @@ async function registerPkg() {
         '<div class="p-8 text-center"><div class="w-16 h-16 rounded-full bg-green-500/10 flex items-center justify-center mx-auto mb-5"><i class="fa-solid fa-circle-check text-success text-3xl"></i></div><h3 class="font-heading font-bold text-fg text-xl mb-2">Registrada</h3><p class="text-fg-dim mb-4"><strong class="text-fg">' + r.name + '</strong> - Apto ' + r.apartment + '</p>' + (tempPackagePhoto ? '<img src="' + tempPackagePhoto + '" class="w-28 h-28 object-cover rounded-xl mx-auto mb-4 border border-border">' : '') + '<div class="code-display code-pulse mb-4">' + code + '</div><p class="text-muted text-sm mb-6">Codigo de retirada</p><div class="flex flex-col gap-3 max-w-xs mx-auto"><a href="' + wa + '" target="_blank" class="btn-whatsapp w-full justify-center"><i class="fa-brands fa-whatsapp text-lg"></i> Enviar WhatsApp</a><button class="btn-secondary w-full justify-center" onclick="navigator.clipboard.writeText(\'' + code + '\').then(function(){showToast(\'Copiado\',\'success\')})"><i class="fa-solid fa-copy"></i> Copiar</button></div></div><div class="p-6 border-t border-border flex items-center justify-center"><button class="btn-secondary" onclick="closeModal();renderPackages()">Fechar</button></div>';
     tempPackagePhoto = null;
 }
+
 function resendN(id) {
     var p = state.packages.find(function(x) { return x.id === id }); if (!p) return;
     var r = getR(p.residentId); if (!r) return;
@@ -1029,6 +1098,7 @@ function resendN(id) {
     window.open(waUrl(r.whatsapp, '*PORTARIA*\n\nLembrete: encomenda aguardando:\n\n• ' + p.description + '\n• Apto ' + p.apartment + '\n\n🔐 Codigo: ' + p.code + fotoMsg), '_blank');
     showToast('WhatsApp aberto', 'success');
 }
+
 function openDeliver(pkgId) {
     var p = state.packages.find(function(x) { return x.id === pkgId }); if (!p) return;
     openModal(
@@ -1040,6 +1110,7 @@ function openDeliver(pkgId) {
     );
     setTimeout(function() { var i = document.getElementById('delTo'); if (i) i.focus() }, 150);
 }
+
 async function execDeliver(pkgId) {
     var dt = document.getElementById('delTo') ? document.getElementById('delTo').value.trim() : '';
     if (!dt) { showToast('Informe quem recebeu', 'error'); return }
