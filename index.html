@@ -855,7 +855,14 @@ function calcConsumption(key) {
 }
 function getMonthConsumption(key, year, month) {
     var cons = calcConsumption(key);
-    return cons.filter(function(c) { var d = new Date(c.date); return d.getFullYear() === year && d.getMonth() === month; });
+    var cicloInicio = localStorage.getItem('ciclo_inicio');
+    return cons.filter(function(c) {
+        var d = new Date(c.date);
+        var anoMesAtual = d.getFullYear() === year && d.getMonth() === month;
+        if (!anoMesAtual) return false;
+        if (cicloInicio) return d >= new Date(cicloInicio);
+        return true;
+    });
 }
 function sumConsumption(arr) { var t = 0; arr.forEach(function(c) { t += c.consumption; }); return t; }
 function avgConsumption(key) {
@@ -905,7 +912,9 @@ function renderHidrometros() {
             '<div class="flex gap-2 flex-wrap">' +
                 '<button class="btn-secondary" onclick="openGoalsModal()"><i class="fa-solid fa-bullseye"></i> Metas</button>' +
                 '<button class="btn-water" onclick="openWaterContactModal()"><i class="fa-solid fa-address-book"></i> Contato</button>' +
-                '<button class="btn-secondary" onclick="generateWaterPDF()"><i class="fa-solid fa-file-pdf"></i> Baixar PDF</button>' +
+'<button class="btn-secondary" onclick="baixarPdfAtual()"><i class="fa-solid fa-file-pdf"></i> Baixar PDF</button>' +
+'<button class="btn-secondary" onclick="openPdfPorDataModal()"><i class="fa-solid fa-file-pdf"></i> Baixar PDF</button>' +
+                '<button class="btn-water" onclick="openEncerrarFaturaModal()"><i class="fa-solid fa-file-invoice-dollar"></i> Encerrar Fatura</button>' +
                 '<button class="btn-primary" onclick="openNewReadingModal()"><i class="fa-solid fa-plus"></i> Nova Leitura</button>' +
             '</div>' +
         '</div>' +
@@ -1357,7 +1366,150 @@ function generateWaterPDF() {
         }, 500);
     }
 }
+/* ============================================
+   /* ============================================
+/* ============================================
+   PDF POR DATA E ENCERRAMENTO DE FATURA
+   ============================================ */
+function openPdfPorDataModal() {
+    var hoje = new Date().toISOString().slice(0, 10);
+    openModal(
+        '<div class="p-6 border-b border-border"><h3 class="font-heading font-bold text-fg text-lg"><i class="fa-solid fa-file-pdf text-sky-400"></i> Baixar PDF por Período</h3></div>' +
+        '<div class="p-6 space-y-4">' +
+            '<div><label class="form-label">Data Início</label><input type="date" class="form-input" id="pdfDataInicio" value="' + hoje + '"></div>' +
+            '<div><label class="form-label">Data Fim</label><input type="date" class="form-input" id="pdfDataFim" value="' + hoje + '"></div>' +
+        '</div>' +
+        '<div class="p-6 border-t border-border flex items-center justify-end gap-3"><button class="btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn-water" onclick="gerarPdfSimples()"><i class="fa-solid fa-download"></i> Gerar PDF</button></div>'
+    );
+}
 
+function gerarPdfSimples() {
+    var inicio = document.getElementById('pdfDataInicio').value;
+    var fim = document.getElementById('pdfDataFim').value;
+    if (!inicio || !fim) { showToast('Selecione as duas datas', 'error'); return; }
+    closeModal();
+    gerarPdfPorData(inicio, fim);
+}
+
+function openEncerrarFaturaModal() {
+    var hoje = new Date().toISOString().slice(0, 10);
+    openModal(
+        '<div class="p-6 border-b border-border"><h3 class="font-heading font-bold text-fg text-lg"><i class="fa-solid fa-file-invoice-dollar text-yellow-400"></i> Encerrar Fatura</h3><p class="text-muted text-sm mt-1">Selecione o período exato que o funcionário da CAGECE leu.</p></div>' +
+        '<div class="p-6 space-y-4">' +
+            '<div><label class="form-label">Início da Fatura (Ex: 03/05)</label><input type="date" class="form-input" id="encDataInicio" value="' + hoje + '"></div>' +
+            '<div><label class="form-label">Fim da Fatura (Ex: 03/06 - Dia que ele veio)</label><input type="date" class="form-input" id="encDataFim" value="' + hoje + '"></div>' +
+        '</div>' +
+        '<div class="p-6 border-t border-border flex items-center justify-end gap-3"><button class="btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn-water" onclick="gerarEncerramento()"><i class="fa-solid fa-check"></i> Gerar PDF e Encerrar</button></div>'
+    );
+}
+
+function gerarEncerramento() {
+    var inicio = document.getElementById('encDataInicio').value;
+    var fim = document.getElementById('encDataFim').value;
+    if (!inicio || !fim) { showToast('Selecione as duas datas', 'error'); return; }
+    closeModal();
+    gerarPdfPorData(inicio, fim);
+    showToast('Fatura encerrada com sucesso!', 'success');
+}
+
+function gerarPdfPorData(inicio, fim) {
+    var { jsPDF } = window.jspdf;
+    var doc = new jsPDF();
+
+    // Transforma as strings de data do calendário para conseguir comparar
+    var dtInicio = new Date(inicio + "T00:00:00");
+    var dtFim = new Date(fim + "T23:59:59");
+
+    // Pega TODAS as leituras do sistema e filtra apenas as que estão DENTRO das datas escolhidas
+    var todasLeituras = (state.readings || []).slice();
+    var leiturasFiltradas = todasLeituras.filter(function(r) {
+        var dtLeitura = new Date(r.date);
+        if (dtLeitura < dtInicio) return false; // Se for antes do início, ignora
+        if (dtLeitura > dtFim) return false;     // Se for depois do fim, ignora
+        return true;
+    });
+
+    // Separa Geral e Comum e ordena do mais velho para o mais novo
+    var geralRaw = leiturasFiltradas.filter(function(r){ return r.meterKey === 'GERAL'; }).sort(function(a,b){ return new Date(a.date) - new Date(b.date); });
+    var comumRaw = leiturasFiltradas.filter(function(r){ return r.meterKey === 'COMUM'; }).sort(function(a,b){ return new Date(a.date) - new Date(b.date); });
+
+    // Calcula o consumo real SOMENTE com as leituras desse período
+    var geralCons = []; var totalGeral = 0;
+    for(var i=0; i < geralRaw.length - 1; i++) {
+        var diff = geralRaw[i+1].value - geralRaw[i].value;
+        if (diff >= 0) { totalGeral += diff; geralCons.push({ date: geralRaw[i+1].date, value: geralRaw[i+1].value, prevValue: geralRaw[i].value, consumption: diff }); }
+    }
+
+    var comumCons = []; var totalComum = 0;
+    for(var i=0; i < comumRaw.length - 1; i++) {
+        var diff = comumRaw[i+1].value - comumRaw[i].value;
+        if (diff >= 0) { totalComum += diff; comumCons.push({ date: comumRaw[i+1].date, value: comumRaw[i+1].value, prevValue: comumRaw[i].value, consumption: diff }); }
+    }
+
+    // Se não achar leitura nessas datas, avisa
+    if (geralCons.length === 0 && comumCons.length === 0) {
+        showToast('Nenhuma leitura encontrada entre ' + fmtDateShort(inicio) + ' e ' + fmtDateShort(fim), 'warning');
+        return;
+    }
+
+    // Formata o texto do período para o título do PDF
+    var periodoTexto = fmtDateShort(inicio) + ' a ' + fmtDateShort(fim);
+    var now = new Date();
+
+    // Monta o visual do PDF
+    doc.setFillColor(6, 8, 13);
+    doc.rect(0, 0, 210, 40, 'F');
+    doc.setTextColor(56, 189, 248);
+    doc.setFontSize(18);
+    doc.text('Relatorio de Consumo de Agua', 14, 18);
+    doc.setFontSize(10);
+    doc.setTextColor(148, 163, 184);
+    doc.text('CAGECE - ' + periodoTexto, 14, 28);
+    doc.text('Gerado em: ' + now.toLocaleDateString('pt-BR') + ' ' + now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), 14, 35);
+
+    doc.setTextColor(30, 41, 59);
+    doc.setFontSize(13);
+    doc.text('Resumo do Período', 14, 52);
+
+    doc.setFillColor(241, 245, 249);
+    doc.roundedRect(14, 56, 182, 28, 3, 3, 'F');
+    doc.setFontSize(9);
+    doc.setTextColor(100, 116, 139);
+    doc.text('Geral (Pai)', 20, 65);
+    doc.text('Area Comum', 90, 65);
+    doc.text('Moradores (Diff)', 155, 65);
+    doc.setFontSize(14);
+    doc.setTextColor(6, 8, 13);
+    doc.text(totalGeral.toFixed(1) + ' m³', 20, 78);
+    doc.text(totalComum.toFixed(1) + ' m³', 90, 78);
+    doc.text(Math.max(0, totalGeral - totalComum).toFixed(1) + ' m³', 155, 78);
+
+    // Tabela Geral
+    var geralRows = geralCons.map(function(c) { return [fmtDate(c.date), c.value.toFixed(3), c.prevValue.toFixed(3), c.consumption.toFixed(3)]; });
+    if (geralRows.length > 0) {
+        doc.setTextColor(30, 41, 59); doc.setFontSize(13);
+        doc.text('Hidrometro Geral (Pai)', 14, 100);
+        doc.autoTable({ startY: 104, head: [['Data', 'Leitura (m³)', 'Leitura Anterior', 'Consumo (m³)']], body: geralRows, theme: 'grid', styles: { fontSize: 8, cellPadding: 3 }, headStyles: { fillColor: [14, 165, 233], textColor: 255, fontStyle: 'bold' }, alternateRowStyles: { fillColor: [248, 250, 252] }, margin: { left: 14, right: 14 } });
+    }
+
+    // Tabela Comum
+    var comumRows = comumCons.map(function(c) { return [fmtDate(c.date), c.value.toFixed(3), c.prevValue.toFixed(3), c.consumption.toFixed(3)]; });
+    if (comumRows.length > 0) {
+        var finalY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 14 : 200;
+        if (finalY > 250) { doc.addPage(); finalY = 20; }
+        doc.setTextColor(30, 41, 59); doc.setFontSize(13);
+        doc.text('Area Comum', 14, finalY);
+        doc.autoTable({ startY: finalY + 4, head: [['Data', 'Leitura (m³)', 'Leitura Anterior', 'Consumo (m³)']], body: comumRows, theme: 'grid', styles: { fontSize: 8, cellPadding: 3 }, headStyles: { fillColor: [124, 58, 237], textColor: 255, fontStyle: 'bold' }, alternateRowStyles: { fillColor: [248, 250, 252] }, margin: { left: 14, right: 14 } });
+    }
+
+    // Rodapé
+    var pageCount = doc.internal.getNumberOfPages();
+    for (var i = 1; i <= pageCount; i++) { doc.setPage(i); doc.setFontSize(8); doc.setTextColor(148, 163, 184); doc.text('Portaria Digital - Severino | Pagina ' + i + ' de ' + pageCount, 14, 290); }
+
+    var fileName = 'relatorio_agua_' + inicio + '_ate_' + fim + '.pdf';
+    doc.save(fileName);
+    showToast('PDF baixado com sucesso!', 'success');
+}
 /* ============================================
    INICIALIZACAO
    ============================================ */
